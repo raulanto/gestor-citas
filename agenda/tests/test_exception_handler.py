@@ -11,10 +11,15 @@ from agenda.exceptions import (
     DayClosed,
     DomainError,
     InvalidDuration,
+    InvalidSlot,
     NoWorkerAvailable,
+    OutsideBookingWindow,
     QuotaExceeded,
+    RequesterLimitReached,
     RescheduleLimitReached,
     ScheduleConflict,
+    ServiceNotFound,
+    WaitlistFull,
 )
 
 
@@ -52,14 +57,19 @@ def test_custom_domain_error_attributes(drf_context):
 @pytest.mark.parametrize(
     "exception_cls,expected_code,expected_status",
     [
-        (DayClosed, "day_closed", status.HTTP_400_BAD_REQUEST),
-        (QuotaExceeded, "quota_exceeded", status.HTTP_400_BAD_REQUEST),
+        (DayClosed, "day_closed", status.HTTP_409_CONFLICT),
+        (QuotaExceeded, "quota_exceeded", status.HTTP_409_CONFLICT),
         (NoWorkerAvailable, "no_worker_available", status.HTTP_400_BAD_REQUEST),
         (CancellationNotAllowed, "cancellation_not_allowed", status.HTTP_400_BAD_REQUEST),
         (RescheduleLimitReached, "reschedule_limit_reached", status.HTTP_400_BAD_REQUEST),
         (InvalidDuration, "invalid_duration", status.HTTP_400_BAD_REQUEST),
-        (ScheduleConflict, "schedule_conflict", status.HTTP_400_BAD_REQUEST),
+        (ScheduleConflict, "schedule_conflict", status.HTTP_409_CONFLICT),
+        (InvalidSlot, "invalid_slot", status.HTTP_400_BAD_REQUEST),
+        (OutsideBookingWindow, "outside_booking_window", status.HTTP_400_BAD_REQUEST),
+        (RequesterLimitReached, "requester_limit_reached", status.HTTP_409_CONFLICT),
+        (WaitlistFull, "waitlist_full", status.HTTP_409_CONFLICT),
         (AppointmentNotFound, "appointment_not_found", status.HTTP_404_NOT_FOUND),
+        (ServiceNotFound, "service_not_found", status.HTTP_404_NOT_FOUND),
     ],
 )
 def test_domain_exception_subclasses(exception_cls, expected_code, expected_status, drf_context):

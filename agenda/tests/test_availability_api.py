@@ -100,7 +100,7 @@ class TestAvailabilityAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         data = response.json()
-        assert data["code"] == "SERVICE_NOT_FOUND"
+        assert data["code"] == "service_not_found"
 
     def test_inactive_service_returns_404(self):
         client = APIClient()
@@ -109,4 +109,4 @@ class TestAvailabilityAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         data = response.json()
-        assert data["code"] == "SERVICE_NOT_FOUND"
+        assert data["code"] == "service_not_found"

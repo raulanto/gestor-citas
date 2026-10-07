@@ -3,15 +3,9 @@
 import datetime
 from dataclasses import dataclass
 
+from agenda.services.capacity import Shift
 
-@dataclass(frozen=True)
-class Shift:
-    """Immutable representation of a resolved working shift."""
-
-    start: datetime.time
-    end: datetime.time
-    break_start: datetime.time | None = None
-    break_end: datetime.time | None = None
+__all__ = ["DayConfigResolved", "Shift"]
 
 
 @dataclass(frozen=True)

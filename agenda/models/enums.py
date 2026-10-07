@@ -16,3 +16,8 @@ class Weekday(models.IntegerChoices):
 class ExceptionKind(models.TextChoices):
     ABSENCE = "ABSENCE", "Ausencia"
     SPECIAL_HOURS = "SPECIAL_HOURS", "Horario especial"
+
+
+from agenda.constants import AppointmentStatus  # noqa: E402
+
+__all__ = ["AppointmentStatus", "ExceptionKind", "Weekday"]

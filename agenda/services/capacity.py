@@ -7,7 +7,15 @@ import datetime
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from agenda.selectors.types import Shift
+
+@dataclass(frozen=True)
+class Shift:
+    """Immutable representation of a resolved working shift."""
+
+    start: datetime.time
+    end: datetime.time
+    break_start: datetime.time | None = None
+    break_end: datetime.time | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,10 @@ class Interval:
         Touching at the boundary (e.g. [09:00, 10:00) and [10:00, 11:00)) does NOT overlap.
         """
         return max(self.start, other.start) < min(self.end, other.end)
+
+    def is_subset_of(self, other: "Interval") -> bool:
+        """Check if this interval is fully contained within another interval [start, end)."""
+        return other.start <= self.start and self.end <= other.end
 
 
 def work_segments(shift: Shift) -> list[Interval]:

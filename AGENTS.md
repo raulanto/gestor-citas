@@ -53,7 +53,13 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 
 ## Concurrencia e integridad
 
-- Reservar y asignar dentro de `transaction.atomic()` con `select_for_update()` sobre la configuración del día y/o los trabajadores candidatos.
+- **Serialización por día:** Reservar y asignar dentro de `transaction.atomic()` tomando un lock consultivo de PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())` (o `select_for_update()` sobre configuración/trabajadores). Esto serializa reservas por día sin requerir filas preexistentes de `DayConfig`.
+- **Red de seguridad en BD:** `ExclusionConstraint` de PostgreSQL (`tstzrange(start_at, end_at) &&` sobre `worker`) con `BtreeGistExtension` para impedir citas solapadas con trabajador asignado (`OCCUPYING_STATUSES`).
+- **El `status` solo cambia desde services:** Nunca mutar `status` o `worker` directamente en admin, vistas o señales. Cada transición escribe un `AppointmentEvent`.
+- **Ubicación de lógica clave:**
+  - Estados y conjuntos (`QUOTA_STATUSES`, `OCCUPYING_STATUSES`, `ACTIVE_STATUSES`): en `agenda/constants.py`.
+  - Asignación pura de personal (`pick_worker`): en `agenda/services/assignment.py`.
+  - Identificación y normalización de solicitante (`get_or_create_requester`, `normalize_phone`): en `agenda/services/requesters.py`.
 - Constraints en BD cuando sea posible (únicos, checks de rango horario `start < end`).
 - Operaciones idempotentes en tareas Celery.
 

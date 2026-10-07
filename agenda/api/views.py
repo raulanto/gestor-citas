@@ -1,17 +1,22 @@
 """API views for agenda microapp."""
 
+import uuid
+
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from agenda.api.serializers import (
+    AppointmentCreateSerializer,
+    AppointmentDetailSerializer,
     AvailabilityQuerySerializer,
     DayAvailabilitySerializer,
 )
 from agenda.exceptions import ServiceNotFound
 from agenda.models import Service
-from agenda.selectors import get_day_availability
+from agenda.selectors import get_appointment, get_day_availability
+from agenda.services import book_appointment, get_or_create_requester
 
 
 class HealthCheckView(APIView):
@@ -61,3 +66,59 @@ class AvailabilityView(APIView):
         }
         response_serializer = DayAvailabilitySerializer(response_data)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class AppointmentCreateView(APIView):
+    """Create and book a new appointment or place on the waitlist."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AppointmentCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "code": "INVALID_PARAMETERS",
+                    "detail": "Datos de solicitud inválidos.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        requester_data = serializer.validated_data["requester"]
+        requester = get_or_create_requester(
+            full_name=requester_data["full_name"],
+            phone=requester_data.get("phone"),
+            email=requester_data.get("email"),
+        )
+
+        service_id = serializer.validated_data["service"]
+        service = Service.objects.filter(id=service_id, is_active=True).first()
+        if service is None:
+            raise ServiceNotFound()
+
+        start_at = serializer.validated_data["start_at"]
+        actor = request.user if request.user.is_authenticated else None
+
+        result = book_appointment(
+            requester=requester,
+            service=service,
+            start_at=start_at,
+            actor=actor,
+        )
+
+        response_serializer = AppointmentDetailSerializer(result.appointment)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AppointmentDetailView(APIView):
+    """Retrieve details for an existing appointment."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
+        appointment = get_appointment(id)
+        serializer = AppointmentDetailSerializer(appointment)
+        return Response(serializer.data, status=status.HTTP_200_OK)

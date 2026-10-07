@@ -8,7 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from agenda.models import Service
-from agenda.ports import BusySlotsPort, NullBusySlots
+from agenda.ports import BusySlotsPort
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.workers import list_available_workers_on
 from agenda.services.capacity import (
@@ -48,7 +48,9 @@ def get_day_availability(
 ) -> DayAvailability:
     """Calculate availability and bookable slots for a service on a target date."""
     if busy is None:
-        busy = NullBusySlots()
+        from agenda.adapters.appointments_busy import AppointmentBusySlots
+
+        busy = AppointmentBusySlots()
 
     tz = ZoneInfo(settings.TIME_ZONE)
     if now is None:

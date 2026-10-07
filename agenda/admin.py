@@ -4,6 +4,8 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from agenda.models import (
+    Appointment,
+    AppointmentEvent,
     DayConfig,
     Requester,
     ScheduleException,
@@ -28,6 +30,62 @@ class ScheduleExceptionInline(admin.TabularInline):
     model = ScheduleException
     extra = 0
     fields = ("date", "kind", "start_time", "end_time", "break_start", "break_end", "reason")
+
+
+class AppointmentEventInline(admin.TabularInline):
+    """Read-only inline display of audit events for an appointment."""
+
+    model = AppointmentEvent
+    extra = 0
+    can_delete = False
+    readonly_fields = ("from_status", "to_status", "worker", "actor", "note", "created_at")
+
+    def has_add_permission(self, request: HttpRequest, obj: Appointment | None = None) -> bool:
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: AppointmentEvent | None = None
+    ) -> bool:
+        return False
+
+
+@admin.register(Appointment)
+class AppointmentAdmin(admin.ModelAdmin):
+    """Read-only admin interface for viewing appointments and their audit history."""
+
+    list_display = (
+        "id",
+        "requester",
+        "service",
+        "worker",
+        "date",
+        "start_at",
+        "end_at",
+        "status",
+        "created_at",
+    )
+    list_filter = ("status", "date", "worker", "service")
+    search_fields = ("requester__full_name", "requester__phone", "requester__email", "id")
+    readonly_fields = (
+        "id",
+        "requester",
+        "service",
+        "worker",
+        "date",
+        "start_at",
+        "end_at",
+        "status",
+        "rescheduled_from",
+        "created_at",
+        "updated_at",
+    )
+    inlines = [AppointmentEventInline]
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Appointment | None = None) -> bool:
+        return False
 
 
 @admin.register(Worker)

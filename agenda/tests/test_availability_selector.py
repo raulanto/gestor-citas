@@ -277,8 +277,8 @@ class TestAvailabilitySelector:
                 end_time=datetime.time(17, 0),
             )
 
-        # Constant queries: DayConfig (1 query) + Workers prefetches (2 queries) <= 5 queries
-        with django_assert_max_num_queries(5):
+        # Constant queries: DayConfig (2) + Workers prefetches (3) + BusySlots (2) <= 8 queries
+        with django_assert_max_num_queries(8):
             availability = get_day_availability(target_date, service)
 
         assert availability.reason is None

@@ -1,5 +1,6 @@
 """Agenda selectors package for read-only queries."""
 
+from agenda.selectors.appointments import get_appointment
 from agenda.selectors.availability import DayAvailability, Slot, get_day_availability
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.types import DayConfigResolved, Shift
@@ -10,6 +11,7 @@ __all__ = [
     "DayConfigResolved",
     "Shift",
     "Slot",
+    "get_appointment",
     "get_day_availability",
     "list_available_workers_on",
     "resolve_day_config",

@@ -2,6 +2,8 @@
 
 from rest_framework import serializers
 
+from agenda.models import Appointment
+
 
 class AvailabilityQuerySerializer(serializers.Serializer):
     """Query parameters serializer for availability endpoint."""
@@ -24,7 +26,7 @@ class AvailabilityQuerySerializer(serializers.Serializer):
 
 
 class ServiceSummarySerializer(serializers.Serializer):
-    """Serializer for service summary in availability response."""
+    """Serializer for service summary."""
 
     id = serializers.IntegerField()
     name = serializers.CharField()
@@ -49,3 +51,88 @@ class DayAvailabilitySerializer(serializers.Serializer):
     effective_quota = serializers.IntegerField()
     remaining_quota = serializers.IntegerField()
     slots = SlotSerializer(many=True)
+
+
+class RequesterInputSerializer(serializers.Serializer):
+    """Input serializer for requester contact details in appointment booking."""
+
+    full_name = serializers.CharField(
+        max_length=150,
+        required=True,
+        error_messages={"required": "El nombre completo del solicitante es obligatorio."},
+    )
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+    email = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        phone = (attrs.get("phone") or "").strip()
+        email = (attrs.get("email") or "").strip()
+        if not phone and not email:
+            raise serializers.ValidationError(
+                "Debe proporcionar al menos un teléfono o un correo electrónico."
+            )
+        return attrs
+
+
+class RequesterDetailSerializer(serializers.Serializer):
+    """Detail serializer for requester in appointment response."""
+
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    phone = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class AppointmentCreateSerializer(serializers.Serializer):
+    """Input serializer for creating/booking a new appointment."""
+
+    requester = RequesterInputSerializer(required=True)
+    service = serializers.IntegerField(
+        required=True,
+        min_value=1,
+        error_messages={
+            "required": "El parámetro 'service' es obligatorio.",
+            "invalid": "El identificador del servicio debe ser un número entero válido.",
+        },
+    )
+    start_at = serializers.DateTimeField(
+        required=True,
+        error_messages={
+            "required": "La fecha y hora de inicio ('start_at') es obligatoria.",
+            "invalid": "Formato de fecha y hora inválido. Utilice formato ISO-8601 aware.",
+        },
+    )
+
+
+class AppointmentDetailSerializer(serializers.ModelSerializer):
+    """Response serializer for appointment details."""
+
+    service = ServiceSummarySerializer()
+    requester = RequesterDetailSerializer()
+    worker_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Appointment
+        fields = [
+            "id",
+            "status",
+            "service",
+            "date",
+            "start_at",
+            "end_at",
+            "requester",
+            "worker_name",
+        ]
+
+    def get_worker_name(self, obj: Appointment) -> str | None:
+        if obj.worker is not None:
+            return obj.worker.full_name
+        return None

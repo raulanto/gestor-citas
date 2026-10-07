@@ -28,7 +28,7 @@ class DayClosed(DomainError):
 
     code = "day_closed"
     detail = "El día seleccionado se encuentra cerrado para citas."
-    http_status = 400
+    http_status = 409
 
 
 class QuotaExceeded(DomainError):
@@ -36,7 +36,7 @@ class QuotaExceeded(DomainError):
 
     code = "quota_exceeded"
     detail = "Se ha superado el cupo de citas disponible para esta fecha."
-    http_status = 400
+    http_status = 409
 
 
 class NoWorkerAvailable(DomainError):
@@ -76,7 +76,39 @@ class ScheduleConflict(DomainError):
 
     code = "schedule_conflict"
     detail = "Existe un conflicto de horario con otra cita existente."
+    http_status = 409
+
+
+class InvalidSlot(DomainError):
+    """Raised when the requested appointment slot does not match the grid or worker schedule."""
+
+    code = "invalid_slot"
+    detail = "El horario seleccionado no es válido."
     http_status = 400
+
+
+class OutsideBookingWindow(DomainError):
+    """Raised when attempting to book outside the allowed advance booking window."""
+
+    code = "outside_booking_window"
+    detail = "La fecha y hora solicitadas están fuera de la ventana permitida de reservas."
+    http_status = 400
+
+
+class RequesterLimitReached(DomainError):
+    """Raised when a requester reaches the maximum allowed active appointments for a single day."""
+
+    code = "requester_limit_reached"
+    detail = "El solicitante ha alcanzado el límite de citas activas permitidas para esta fecha."
+    http_status = 409
+
+
+class WaitlistFull(DomainError):
+    """Raised when the daily waitlist capacity has been exceeded."""
+
+    code = "waitlist_full"
+    detail = "La lista de espera para esta fecha ha alcanzado su capacidad máxima."
+    http_status = 409
 
 
 class AppointmentNotFound(DomainError):
@@ -90,6 +122,6 @@ class AppointmentNotFound(DomainError):
 class ServiceNotFound(DomainError):
     """Raised when a requested service does not exist or is inactive."""
 
-    code = "SERVICE_NOT_FOUND"
+    code = "service_not_found"
     detail = "El servicio solicitado no existe o se encuentra inactivo."
     http_status = 404
