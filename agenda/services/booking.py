@@ -35,7 +35,8 @@ from agenda.services.capacity import (
     personnel_capacity,
     work_segments,
 )
-from agenda.services.locking import day_advisory_lock
+from agenda.services.locks import day_advisory_lock
+
 
 
 @dataclass(frozen=True)

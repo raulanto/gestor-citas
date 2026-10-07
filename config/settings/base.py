@@ -126,3 +126,17 @@ MAX_RESCHEDULES_PER_APPOINTMENT = config("MAX_RESCHEDULES_PER_APPOINTMENT", defa
 MAX_ACTIVE_PER_REQUESTER_PER_DAY = config("MAX_ACTIVE_PER_REQUESTER_PER_DAY", default=1, cast=int)
 WAITLIST_MAX_PER_DAY = config("WAITLIST_MAX_PER_DAY", default=20, cast=int)
 DEFAULT_SLOT_STEP_MINUTES = config("DEFAULT_SLOT_STEP_MINUTES", default=15, cast=int)
+WAITLIST_SWEEP_MINUTES = config("WAITLIST_SWEEP_MINUTES", default=5, cast=int)
+
+# Celery Configuration
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+CELERY_BEAT_SCHEDULE = {
+    "waitlist-maintenance-sweep": {
+        "task": "agenda.tasks.waitlist_maintenance_task",
+        "schedule": WAITLIST_SWEEP_MINUTES * 60,
+    },
+}
+
