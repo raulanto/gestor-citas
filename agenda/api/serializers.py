@@ -135,6 +135,45 @@ class WaitlistEntrySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(source="appointment.created_at")
 
 
+class AppointmentCancelSerializer(serializers.Serializer):
+    """Input serializer for appointment cancellation."""
+
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=500,
+    )
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class AppointmentRescheduleSerializer(serializers.Serializer):
+    """Input serializer for appointment rescheduling."""
+
+    start_at = serializers.DateTimeField(
+        required=True,
+        error_messages={
+            "required": "La nueva fecha y hora ('start_at') es obligatoria.",
+            "invalid": "Formato de fecha y hora inválido. Utilice formato ISO-8601 aware.",
+        },
+    )
+    allow_waitlist = serializers.BooleanField(required=False, default=False)
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class AppointmentListQuerySerializer(serializers.Serializer):
+    """Query parameters serializer for listing appointments."""
+
+    date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        error_messages={
+            "invalid": "Formato de fecha inválido. Utilice el formato YYYY-MM-DD.",
+        },
+    )
+    status = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class AppointmentDetailSerializer(serializers.ModelSerializer):
     """Response serializer for appointment details."""
 
@@ -142,6 +181,10 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
     requester = RequesterDetailSerializer()
     worker_name = serializers.SerializerMethodField()
     waitlist_position = serializers.SerializerMethodField()
+    reschedules_remaining = serializers.SerializerMethodField()
+    can_cancel_until = serializers.SerializerMethodField()
+    rescheduled_from = serializers.UUIDField(source="rescheduled_from_id", allow_null=True)
+    rescheduled_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Appointment
@@ -155,6 +198,11 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             "requester",
             "worker_name",
             "waitlist_position",
+            "reschedule_count",
+            "reschedules_remaining",
+            "can_cancel_until",
+            "rescheduled_from",
+            "rescheduled_to",
         ]
 
     def get_worker_name(self, obj: Appointment) -> str | None:
@@ -166,3 +214,27 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
         from agenda.selectors.waitlist import waitlist_position
 
         return waitlist_position(obj)
+
+    def get_reschedules_remaining(self, obj: Appointment) -> int:
+        from django.conf import settings
+
+        max_reschedules = getattr(settings, "MAX_RESCHEDULES_PER_APPOINTMENT", 2)
+        return max(0, max_reschedules - obj.reschedule_count)
+
+    def get_can_cancel_until(self, obj: Appointment) -> str | None:
+        from django.conf import settings
+
+        from agenda.constants import AppointmentStatus
+
+        if obj.status == AppointmentStatus.CONFIRMED:
+            import datetime
+
+            min_hours = getattr(settings, "CANCEL_MIN_HOURS", 4)
+            limit = obj.start_at - datetime.timedelta(hours=min_hours)
+            return limit.isoformat()
+        return None
+
+    def get_rescheduled_to(self, obj: Appointment) -> str | None:
+        child = obj.rescheduled_to
+        return str(child.id) if child is not None else None
+

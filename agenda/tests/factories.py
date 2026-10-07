@@ -92,7 +92,13 @@ class AppointmentFactory(DjangoModelFactory):
 
     requester = factory.SubFactory(RequesterFactory)
     service = factory.SubFactory(ServiceFactory)
-    worker = factory.SubFactory(WorkerFactory)
+
+    @factory.lazy_attribute
+    def worker(self):
+        if self.status == AppointmentStatus.WAITLISTED:
+            return None
+        return WorkerFactory()
+
     date = factory.LazyFunction(datetime.date.today)
 
     @factory.lazy_attribute

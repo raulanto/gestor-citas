@@ -1,6 +1,10 @@
 """Agenda selectors package for read-only queries."""
 
-from agenda.selectors.appointments import get_appointment
+from agenda.selectors.appointments import (
+    get_appointment,
+    list_active_appointments,
+    list_appointments_queryset,
+)
 from agenda.selectors.availability import DayAvailability, Slot, get_day_availability
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.types import DayConfigResolved, Shift
@@ -21,6 +25,8 @@ __all__ = [
     "dates_with_waitlist",
     "get_appointment",
     "get_day_availability",
+    "list_active_appointments",
+    "list_appointments_queryset",
     "list_available_workers_on",
     "list_waitlist",
     "resolve_day_config",

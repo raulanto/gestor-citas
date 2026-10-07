@@ -9,13 +9,14 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from agenda.constants import OCCUPYING_STATUSES, AppointmentStatus, EventNote
-from agenda.models import Appointment, AppointmentEvent, Worker
+from agenda.models import Appointment, Worker
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.waitlist import dates_with_waitlist
 from agenda.selectors.workers import list_available_workers_on
 from agenda.services.assignment import pick_worker
 from agenda.services.capacity import Interval, work_segments
 from agenda.services.locks import day_advisory_lock
+from agenda.services.transitions import transition
 
 
 @dataclass(frozen=True)
@@ -119,16 +120,10 @@ def process_waitlist(
 
             if assigned_worker is not None:
                 # Promote waitlisted appointment to CONFIRMED
-                appt.worker = assigned_worker
-                appt.status = AppointmentStatus.CONFIRMED
-                appt.save(update_fields=["worker", "status", "updated_at"])
-
-                AppointmentEvent.objects.create(
-                    appointment=appt,
-                    from_status=AppointmentStatus.WAITLISTED,
-                    to_status=AppointmentStatus.CONFIRMED,
+                transition(
+                    appt,
+                    AppointmentStatus.CONFIRMED,
                     worker=assigned_worker,
-                    actor=None,
                     note=EventNote.WAITLIST_ASSIGNED,
                 )
 
@@ -179,15 +174,9 @@ def expire_waitlist(now: datetime.datetime | None = None) -> int:
                 )
             )
             for appt in appts_to_expire:
-                appt.status = AppointmentStatus.EXPIRED
-                appt.save(update_fields=["status", "updated_at"])
-
-                AppointmentEvent.objects.create(
-                    appointment=appt,
-                    from_status=AppointmentStatus.WAITLISTED,
-                    to_status=AppointmentStatus.EXPIRED,
-                    worker=None,
-                    actor=None,
+                transition(
+                    appt,
+                    AppointmentStatus.EXPIRED,
                     note=EventNote.WAITLIST_EXPIRED,
                 )
                 total_expired += 1

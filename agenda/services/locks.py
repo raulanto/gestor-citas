@@ -45,3 +45,27 @@ def day_advisory_lock(target_date: datetime.date):
             yield
     else:
         yield
+
+
+@contextmanager
+def day_advisory_locks(*target_dates: datetime.date):
+    """Context manager acquiring advisory locks for multiple dates in ascending order.
+
+    Locks dates in strict ascending order to prevent deadlocks when operations touch multiple days.
+    """
+    sorted_unique_dates = sorted(set(target_dates))
+    for d in sorted_unique_dates:
+        acquire_day_advisory_lock(d)
+
+    if connection.vendor == "sqlite":
+        locks = [_get_sqlite_lock(d) for d in sorted_unique_dates]
+        # Acquire all SQLite thread locks in ascending order
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            for lk in locks:
+                stack.enter_context(lk)
+            yield
+    else:
+        yield
+

@@ -1,6 +1,6 @@
 """Django admin registration for agenda models."""
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.http import HttpRequest
 
 from agenda.constants import AppointmentStatus
@@ -14,8 +14,15 @@ from agenda.models import (
     Worker,
     WorkSchedule,
 )
+from agenda.selectors import list_active_appointments
 from agenda.selectors.waitlist import waitlist_position
-from agenda.services.waitlist import process_waitlist, schedule_waitlist_processing
+from agenda.services import (
+    cancel_appointment,
+    complete_appointment,
+    mark_no_show,
+    process_waitlist,
+    schedule_waitlist_processing,
+)
 
 
 class WaitlistTriggerMixin:
@@ -86,6 +93,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         "end_at",
         "status",
         "waitlist_position_display",
+        "reschedule_count",
         "created_at",
     )
     list_filter = ("status", "date", "worker", "service")
@@ -99,12 +107,19 @@ class AppointmentAdmin(admin.ModelAdmin):
         "start_at",
         "end_at",
         "status",
+        "reschedule_count",
         "rescheduled_from",
+        "rescheduled_to_display",
         "created_at",
         "updated_at",
     )
     inlines = [AppointmentEventInline]
-    actions = ["reprocess_waitlist_action"]
+    actions = [
+        "reprocess_waitlist_action",
+        "cancel_selected_forced_action",
+        "complete_selected_action",
+        "mark_no_show_selected_action",
+    ]
 
     @admin.display(description="Posición en espera")
     def waitlist_position_display(self, obj: Appointment) -> str:
@@ -112,6 +127,11 @@ class AppointmentAdmin(admin.ModelAdmin):
             pos = waitlist_position(obj)
             return f"#{pos}" if pos else "-"
         return "-"
+
+    @admin.display(description="Reprogramada hacia")
+    def rescheduled_to_display(self, obj: Appointment) -> str:
+        child = obj.rescheduled_to
+        return str(child.id) if child else "-"
 
     @admin.action(description="Reprocesar lista de espera para fechas seleccionadas")
     def reprocess_waitlist_action(self, request: HttpRequest, queryset) -> None:
@@ -124,6 +144,67 @@ class AppointmentAdmin(admin.ModelAdmin):
             request,
             f"Se reprocesaron {len(dates)} fechas y se asignaron {total_assigned} citas.",
         )
+
+    @admin.action(description="Cancelar seleccionadas (forzado)")
+    def cancel_selected_forced_action(self, request: HttpRequest, queryset) -> None:
+        cancelled_count = 0
+        for appt in queryset:
+            try:
+                cancel_appointment(
+                    appt,
+                    reason="Cancelada forzadamente desde admin.",
+                    actor=request.user,
+                    force=True,
+                )
+                cancelled_count += 1
+            except Exception as exc:
+                self.message_user(
+                    request, f"Error al cancelar {appt.id}: {exc}", level=messages.ERROR
+                )
+        if cancelled_count:
+            self.message_user(
+                request,
+                f"Se cancelaron {cancelled_count} citas forzadamente.",
+                level=messages.SUCCESS,
+            )
+
+    @admin.action(description="Marcar completadas")
+    def complete_selected_action(self, request: HttpRequest, queryset) -> None:
+        completed_count = 0
+        for appt in queryset:
+            try:
+                complete_appointment(appt, actor=request.user)
+                completed_count += 1
+            except Exception as exc:
+                self.message_user(
+                    request, f"Error al completar {appt.id}: {exc}", level=messages.ERROR
+                )
+        if completed_count:
+            self.message_user(
+                request,
+                f"Se marcaron como completadas {completed_count} citas.",
+                level=messages.SUCCESS,
+            )
+
+    @admin.action(description="Marcar inasistencia")
+    def mark_no_show_selected_action(self, request: HttpRequest, queryset) -> None:
+        no_show_count = 0
+        for appt in queryset:
+            try:
+                mark_no_show(appt, actor=request.user)
+                no_show_count += 1
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f"Error al marcar inasistencia de {appt.id}: {exc}",
+                    level=messages.ERROR,
+                )
+        if no_show_count:
+            self.message_user(
+                request,
+                f"Se registró inasistencia para {no_show_count} citas.",
+                level=messages.SUCCESS,
+            )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
@@ -179,6 +260,17 @@ class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
     list_filter = ("is_open", "weekday")
     search_fields = ("note",)
 
+    def save_model(self, request: HttpRequest, obj: DayConfig, form, change) -> None:
+        super().save_model(request, obj, form, change)
+        if not obj.is_open and obj.date:
+            active_appts = list_active_appointments(obj.date)
+            if active_appts:
+                self.message_user(
+                    request,
+                    f"Atención: existen {len(active_appts)} citas activas para la fecha {obj.date} que deben reprogramarse o cancelarse.",
+                    level=messages.WARNING,
+                )
+
     @admin.display(description="Alcance (Día / Fecha)")
     def scope_display(self, obj: DayConfig) -> str:
         if obj.date is not None:
@@ -186,3 +278,4 @@ class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
         elif obj.weekday is not None:
             return f"Día semanal: {obj.get_weekday_display()}"
         return "Sin definir"
+

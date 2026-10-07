@@ -63,3 +63,34 @@ class EventNote:
     BOOKED_WAITLISTED = "Cita en lista de espera por falta de personal disponible."
     WAITLIST_ASSIGNED = "Asignada desde lista de espera"
     WAITLIST_EXPIRED = "Expirada sin asignación"
+    CANCELLED = "Cita cancelada."
+    RESCHEDULED = "Cita reprogramada."
+    COMPLETED = "Cita completada."
+    NO_SHOW = "Inasistencia registrada."
+
+
+ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
+    AppointmentStatus.WAITLISTED: frozenset(
+        {
+            AppointmentStatus.CONFIRMED,
+            AppointmentStatus.CANCELLED,
+            AppointmentStatus.EXPIRED,
+            AppointmentStatus.RESCHEDULED,
+        }
+    ),
+    AppointmentStatus.CONFIRMED: frozenset(
+        {
+            AppointmentStatus.CANCELLED,
+            AppointmentStatus.RESCHEDULED,
+            AppointmentStatus.COMPLETED,
+            AppointmentStatus.NO_SHOW,
+        }
+    ),
+    AppointmentStatus.CANCELLED: frozenset(),
+    AppointmentStatus.EXPIRED: frozenset(),
+    AppointmentStatus.RESCHEDULED: frozenset(),
+    AppointmentStatus.COMPLETED: frozenset(),
+    AppointmentStatus.NO_SHOW: frozenset(),
+    AppointmentStatus.REQUESTED: frozenset(),
+}
+

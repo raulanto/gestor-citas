@@ -44,7 +44,7 @@ class NoWorkerAvailable(DomainError):
 
     code = "no_worker_available"
     detail = "No hay personal disponible para el horario solicitado."
-    http_status = 400
+    http_status = 409
 
 
 class CancellationNotAllowed(DomainError):
@@ -52,7 +52,7 @@ class CancellationNotAllowed(DomainError):
 
     code = "cancellation_not_allowed"
     detail = "No es posible cancelar la cita con el tiempo de anticipación actual."
-    http_status = 400
+    http_status = 409
 
 
 class RescheduleLimitReached(DomainError):
@@ -60,7 +60,15 @@ class RescheduleLimitReached(DomainError):
 
     code = "reschedule_limit_reached"
     detail = "Se ha alcanzado el límite máximo de reprogramaciones para esta cita."
-    http_status = 400
+    http_status = 409
+
+
+class InvalidStateTransition(DomainError):
+    """Raised when an invalid appointment status transition is attempted."""
+
+    code = "invalid_state_transition"
+    detail = "La transición de estado solicitada no es válida para la cita."
+    http_status = 409
 
 
 class InvalidDuration(DomainError):

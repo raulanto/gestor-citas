@@ -69,17 +69,26 @@ class Appointment(models.Model):
         max_length=20,
         choices=AppointmentStatus.choices,
     )
+    reschedule_count = models.PositiveSmallIntegerField(
+        "número de reprogramaciones",
+        default=0,
+    )
     rescheduled_from = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="rescheduled_to",
+        related_name="rescheduled_children",
         verbose_name="reprogramada desde",
     )
 
     created_at = models.DateTimeField("creado el", auto_now_add=True)
     updated_at = models.DateTimeField("actualizado el", auto_now=True)
+
+    @property
+    def rescheduled_to(self) -> "Appointment | None":
+        """Return the appointment that was rescheduled from this one, if any."""
+        return self.rescheduled_children.first()
 
     class Meta:
         verbose_name = "cita"
@@ -101,6 +110,10 @@ class Appointment(models.Model):
             models.CheckConstraint(
                 condition=~Q(status=AppointmentStatus.WAITLISTED) | Q(worker__isnull=True),
                 name="appointment_waitlisted_no_worker",
+            ),
+            models.CheckConstraint(
+                condition=Q(rescheduled_from__isnull=True) | ~Q(rescheduled_from=F("id")),
+                name="appointment_rescheduled_from_not_self",
             ),
             PostgresExclusionConstraint(
                 name="appointment_exclude_overlapping_worker",
@@ -125,3 +138,6 @@ class Appointment(models.Model):
             raise ValidationError(
                 "Una cita en lista de espera no debe tener un trabajador asignado."
             )
+        if self.rescheduled_from_id and self.rescheduled_from_id == self.id:
+            raise ValidationError("Una cita no puede ser su propio origen de reprogramación.")
+
