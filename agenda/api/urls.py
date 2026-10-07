@@ -7,6 +7,7 @@ from agenda.api.views import (
     AppointmentDetailView,
     AvailabilityView,
     HealthCheckView,
+    WaitlistView,
 )
 
 app_name = "agenda"
@@ -16,4 +17,5 @@ urlpatterns = [
     path("availability/", AvailabilityView.as_view(), name="availability"),
     path("appointments/", AppointmentCreateView.as_view(), name="appointment_create"),
     path("appointments/<uuid:id>/", AppointmentDetailView.as_view(), name="appointment_detail"),
+    path("waitlist/", WaitlistView.as_view(), name="waitlist"),
 ]

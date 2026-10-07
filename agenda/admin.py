@@ -3,6 +3,7 @@
 from django.contrib import admin
 from django.http import HttpRequest
 
+from agenda.constants import AppointmentStatus
 from agenda.models import (
     Appointment,
     AppointmentEvent,
@@ -13,6 +14,28 @@ from agenda.models import (
     Worker,
     WorkSchedule,
 )
+from agenda.selectors.waitlist import waitlist_position
+from agenda.services.waitlist import process_waitlist, schedule_waitlist_processing
+
+
+class WaitlistTriggerMixin:
+    """Admin mixin that triggers asynchronous waitlist processing on catalog changes."""
+
+    def save_model(self, request: HttpRequest, obj, form, change) -> None:
+        super().save_model(request, obj, form, change)
+        schedule_waitlist_processing()
+
+    def delete_model(self, request: HttpRequest, obj) -> None:
+        super().delete_model(request, obj)
+        schedule_waitlist_processing()
+
+    def save_formset(self, request: HttpRequest, form, formset, change) -> None:
+        super().save_formset(request, form, formset, change)
+        schedule_waitlist_processing()
+
+    def delete_queryset(self, request: HttpRequest, queryset) -> None:
+        super().delete_queryset(request, queryset)
+        schedule_waitlist_processing()
 
 
 class WorkScheduleInline(admin.TabularInline):
@@ -62,6 +85,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         "start_at",
         "end_at",
         "status",
+        "waitlist_position_display",
         "created_at",
     )
     list_filter = ("status", "date", "worker", "service")
@@ -80,16 +104,38 @@ class AppointmentAdmin(admin.ModelAdmin):
         "updated_at",
     )
     inlines = [AppointmentEventInline]
+    actions = ["reprocess_waitlist_action"]
+
+    @admin.display(description="Posición en espera")
+    def waitlist_position_display(self, obj: Appointment) -> str:
+        if obj.status == AppointmentStatus.WAITLISTED:
+            pos = waitlist_position(obj)
+            return f"#{pos}" if pos else "-"
+        return "-"
+
+    @admin.action(description="Reprocesar lista de espera para fechas seleccionadas")
+    def reprocess_waitlist_action(self, request: HttpRequest, queryset) -> None:
+        dates = set(queryset.values_list("date", flat=True))
+        total_assigned = 0
+        for target_date in sorted(dates):
+            result = process_waitlist(target_date)
+            total_assigned += len(result.assigned)
+        self.message_user(
+            request,
+            f"Se reprocesaron {len(dates)} fechas y se asignaron {total_assigned} citas.",
+        )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_delete_permission(self, request: HttpRequest, obj: Appointment | None = None) -> bool:
+    def has_delete_permission(
+        self, request: HttpRequest, obj: Appointment | None = None
+    ) -> bool:
         return False
 
 
 @admin.register(Worker)
-class WorkerAdmin(admin.ModelAdmin):
+class WorkerAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
     """Admin interface for managing staff workers."""
 
     list_display = ("full_name", "user", "is_active", "created_at")
@@ -128,7 +174,7 @@ class RequesterAdmin(admin.ModelAdmin):
 
 
 @admin.register(DayConfig)
-class DayConfigAdmin(admin.ModelAdmin):
+class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
     """Admin interface for managing day capacity and open/closed configurations."""
 
     list_display = ("scope_display", "is_open", "max_appointments", "note", "updated_at")

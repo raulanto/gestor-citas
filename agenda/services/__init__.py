@@ -11,21 +11,34 @@ from agenda.services.capacity import (
     work_segments,
     worker_capacity,
 )
-from agenda.services.locking import acquire_day_advisory_lock
+from agenda.services.locks import acquire_day_advisory_lock, day_advisory_lock
 from agenda.services.requesters import get_or_create_requester, normalize_phone
+from agenda.services.waitlist import (
+    WaitlistResult,
+    expire_waitlist,
+    process_waitlist,
+    process_waitlist_all,
+    schedule_waitlist_processing,
+)
 
 __all__ = [
     "BookingResult",
     "Interval",
     "Shift",
+    "WaitlistResult",
     "acquire_day_advisory_lock",
     "book_appointment",
+    "day_advisory_lock",
     "effective_quota",
+    "expire_waitlist",
     "generate_slots",
     "get_or_create_requester",
     "normalize_phone",
     "personnel_capacity",
     "pick_worker",
+    "process_waitlist",
+    "process_waitlist_all",
+    "schedule_waitlist_processing",
     "work_segments",
     "worker_capacity",
 ]

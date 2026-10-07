@@ -112,12 +112,36 @@ class AppointmentCreateSerializer(serializers.Serializer):
     )
 
 
+class WaitlistQuerySerializer(serializers.Serializer):
+    """Query parameters serializer for waitlist endpoint."""
+
+    date = serializers.DateField(
+        required=True,
+        error_messages={
+            "required": "El parámetro 'date' es obligatorio.",
+            "invalid": "Formato de fecha inválido. Utilice el formato YYYY-MM-DD.",
+        },
+    )
+
+
+class WaitlistEntrySerializer(serializers.Serializer):
+    """Serializer for waitlist entry in list response."""
+
+    id = serializers.UUIDField(source="appointment.id")
+    position = serializers.IntegerField()
+    requester_name = serializers.CharField(source="appointment.requester.full_name")
+    service = ServiceSummarySerializer(source="appointment.service")
+    start_at = serializers.DateTimeField(source="appointment.start_at")
+    created_at = serializers.DateTimeField(source="appointment.created_at")
+
+
 class AppointmentDetailSerializer(serializers.ModelSerializer):
     """Response serializer for appointment details."""
 
     service = ServiceSummarySerializer()
     requester = RequesterDetailSerializer()
     worker_name = serializers.SerializerMethodField()
+    waitlist_position = serializers.SerializerMethodField()
 
     class Meta:
         model = Appointment
@@ -130,9 +154,15 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             "end_at",
             "requester",
             "worker_name",
+            "waitlist_position",
         ]
 
     def get_worker_name(self, obj: Appointment) -> str | None:
         if obj.worker is not None:
             return obj.worker.full_name
         return None
+
+    def get_waitlist_position(self, obj: Appointment) -> int | None:
+        from agenda.selectors.waitlist import waitlist_position
+
+        return waitlist_position(obj)
