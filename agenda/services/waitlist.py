@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import connection, transaction
 from django.utils import timezone
 
-from agenda.constants import OCCUPYING_STATUSES, AppointmentStatus
+from agenda.constants import OCCUPYING_STATUSES, AppointmentStatus, EventNote
 from agenda.models import Appointment, AppointmentEvent, Worker
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.waitlist import dates_with_waitlist
@@ -129,7 +129,7 @@ def process_waitlist(
                     to_status=AppointmentStatus.CONFIRMED,
                     worker=assigned_worker,
                     actor=None,
-                    note="Asignada desde lista de espera.",
+                    note=EventNote.WAITLIST_ASSIGNED,
                 )
 
                 # Update in-memory state
@@ -188,7 +188,7 @@ def expire_waitlist(now: datetime.datetime | None = None) -> int:
                     to_status=AppointmentStatus.EXPIRED,
                     worker=None,
                     actor=None,
-                    note="Expirada sin asignación.",
+                    note=EventNote.WAITLIST_EXPIRED,
                 )
                 total_expired += 1
 

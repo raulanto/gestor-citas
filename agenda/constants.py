@@ -54,3 +54,13 @@ NON_QUOTA_STATUSES = frozenset(
         AppointmentStatus.EXPIRED,
     }
 )
+
+
+class EventNote:
+    """Standard note messages for appointment audit events."""
+
+    BOOKED_CONFIRMED = "Cita reservada y confirmada."
+    BOOKED_WAITLISTED = "Cita en lista de espera por falta de personal disponible."
+    WAITLIST_ASSIGNED = "Asignada desde lista de espera"
+    WAITLIST_EXPIRED = "Expirada sin asignación"
+
