@@ -140,15 +140,26 @@ uv run django-admin startproject config .
 uv run python manage.py startapp agenda
 ```
 
+### Base de datos local (PostgreSQL con Docker)
+
+```bash
+docker compose up -d db
+```
+
 ### Clonar y ejecutar
 
 ```bash
 uv sync                      # crea .venv e instala desde uv.lock
 cp .env.example .env
+docker compose up -d db      # levanta PostgreSQL
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 uv run python manage.py runserver
 ```
+
+El endpoint de salud estará disponible en:
+`GET http://localhost:8000/api/v1/health/` -> `{"status": "ok"}`
+
 
 ### Tests y calidad
 
