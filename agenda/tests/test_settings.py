@@ -22,7 +22,7 @@ def test_business_limits_constants():
 def test_rest_framework_settings():
     """Verify DRF configuration."""
     assert (
-        settings.REST_FRAMEWORK["DEFAULT_EXCEPTION_HANDLER"]
+        settings.REST_FRAMEWORK["EXCEPTION_HANDLER"]
         == "agenda.api.exception_handler.custom_exception_handler"
     )
     assert settings.REST_FRAMEWORK["PAGE_SIZE"] == 20

@@ -85,3 +85,11 @@ class AppointmentNotFound(DomainError):
     code = "appointment_not_found"
     detail = "La cita solicitada no existe."
     http_status = 404
+
+
+class ServiceNotFound(DomainError):
+    """Raised when a requested service does not exist or is inactive."""
+
+    code = "SERVICE_NOT_FOUND"
+    detail = "El servicio solicitado no existe o se encuentra inactivo."
+    http_status = 404

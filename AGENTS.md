@@ -43,7 +43,7 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 
 1. **Duración de servicio ≤ 60 min**, configurable por servicio (validar en modelo y serializer).
 2. **Cupo efectivo del día** = `min(DayConfig.max_appointments, capacidad_personal)`. `max_appointments` nulo = solo capacidad del personal. La función única es `services/capacity.py`; no recalcular en otro lado.
-3. `capacidad_trabajador = floor((salida - entrada - descansos) / duración)`. Las excepciones por fecha (`ScheduleException`) prevalecen sobre el horario semanal. Día con `is_open=False` → no se agenda.
+3. **Capacidad del trabajador**: una cita no puede cruzar el descanso. La capacidad es la suma, por tramo continuo de trabajo, de `floor(minutos_del_tramo / duración)`. `services/capacity.py` es la única fuente de este cálculo y es puro (sin BD). Las excepciones por fecha (`ScheduleException`) prevalecen sobre el horario semanal. Día con `is_open=False` → no se agenda.
 4. **Asignación**: trabajador activo, dentro de horario, sin traslape; se elige el de menor carga del día (desempate por id). Sin trabajador libre → estado `EN_ESPERA`, nunca error al usuario (salvo tope de espera).
 5. **Lista de espera FIFO**: se reevalúa al cancelar, reprogramar, cambiar horarios, agregar personal o subir cupo. Hay un único punto de entrada: `assignment.process_waitlist(date)`.
 6. **Reprogramar** = crear la nueva cita pasando todas las validaciones y, solo si tiene éxito, marcar la anterior como `REPROGRAMADA` con `rescheduled_to`. Todo en una sola transacción.
