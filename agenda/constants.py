@@ -63,4 +63,3 @@ class EventNote:
     BOOKED_WAITLISTED = "Cita en lista de espera por falta de personal disponible."
     WAITLIST_ASSIGNED = "Asignada desde lista de espera"
     WAITLIST_EXPIRED = "Expirada sin asignación"
-

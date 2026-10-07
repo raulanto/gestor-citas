@@ -29,8 +29,7 @@ def list_waitlist(target_date: datetime.date) -> list[WaitlistEntry]:
     )
 
     return [
-        WaitlistEntry(appointment=appt, position=idx + 1)
-        for idx, appt in enumerate(appointments)
+        WaitlistEntry(appointment=appt, position=idx + 1) for idx, appt in enumerate(appointments)
     ]
 
 

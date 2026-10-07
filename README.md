@@ -203,9 +203,26 @@ cupo_efectivo        = min(DayConfig.max_appointments, capacidad_personal)
 3. Si ningún trabajador está libre → la cita se crea como `WAITLISTED` sin trabajador asignado (salvo si se superó `WAITLIST_MAX_PER_DAY`, en cuyo caso lanza `WaitlistFull`).
 4. **Concurrencia:** Todo el proceso de reserva corre dentro de `transaction.atomic()`. Para evitar carreras por el cupo o doble asignación incluso sin fila previa de `DayConfig`, se toma un lock consultivo a nivel de transacción en PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())`. Adicionalmente, el `PostgresExclusionConstraint` actúa como red de seguridad en BD.
 
-### 4. Lista de espera (FIFO)
-- Se reevalúa cuando: se cancela una cita, cambia un horario, se agrega personal o se aumenta el cupo (Fase 4 y 5).
-- Las citas en espera expiran si llega la fecha sin asignarse (`EXPIRED`).
+### 4. Lista de espera (FIFO) y Reasignación Automática
+- **FIFO estricto sin bloqueo de cabecera:** Las citas en espera se evalúan por orden de llegada (`created_at, id`). Si la primera de la fila no puede asignarse (porque su horario particular sigue ocupado), **no frena** a las siguientes solicitudes con otros horarios libres.
+- **Promover no cambia el cupo consumido:** Tanto `WAITLISTED` como `CONFIRMED` computan en `QUOTA_STATUSES`. Al asignarse personal a una cita en espera, no se recalcula `QuotaExceeded`. Por lo tanto, **subir el cupo no libera citas en espera**.
+- **Único punto de entrada:** `process_waitlist(date)` en `agenda/services/waitlist.py` centraliza toda la lógica de asignación con lock consultivo por día (`day_advisory_lock`).
+
+#### Disparadores de reasignación
+
+| Evento disparador | Mecanismo | Efecto |
+|---|---|---|
+| **Cancelación de cita** | Fase 5 service | Libera intervalo del trabajador y ejecuta `process_waitlist(date)`. |
+| **Reprogramación de cita** | Fase 5 service | Libera horario anterior y ejecuta `process_waitlist(date)`. |
+| **Alta o activación de personal (`Worker`)** | Admin / Service | `schedule_waitlist_processing()` encola reasignación asíncrona. |
+| **Cambio de horario (`WorkSchedule`)** | Admin / Service | Amplía tramos laborales y dispara `process_waitlist`. |
+| **Eliminación de ausencia (`ScheduleException`)** | Admin / Service | Restablece disponibilidad del trabajador y reasigna citas. |
+| **Reapertura de día (`DayConfig.is_open=True`)** | Admin / Service | Habilita el día y asigna citas pendientes en espera. |
+| **Barrido periódico (Celery Beat)** | Celery Beat | Ejecuta `waitlist_maintenance_task` cada `WAITLIST_SWEEP_MINUTES`. |
+
+> **Nota:** Subir el cupo (`DayConfig.max_appointments`) **no** dispara reasignación porque las citas en lista de espera ya consumieron cupo en su reserva original.
+
+- **Expiración automática:** Si llega la fecha y hora de inicio (`start_at <= now`) de una cita `WAITLISTED` sin haberse asignado a un trabajador, el servicio `expire_waitlist()` la marca como `EXPIRED` con su respectivo `AppointmentEvent`. Las citas expiradas dejan de consumir cupo.
 
 ### 5. Auditoría
 - Todo cambio de estado crea obligatoriamente un registro `AppointmentEvent` inmutable (`appointment`, `from_status`, `to_status`, `worker`, `note`, `actor`).
@@ -218,31 +235,31 @@ agenda/
 ├── adapters/          # Adaptadores externos (AppointmentBusySlots que implementa BusySlotsPort)
 ├── api/               # Serializers, views delgadas, urls (sin lógica de negocio)
 ├── exceptions.py      # Excepciones de dominio tipadas con código y http_status
-├── management/        # Comandos administrativos (seed_demo)
+├── management/        # Comandos administrativos (seed_demo, process_waitlist, expire_waitlist)
 ├── models/            # Requester, Service, Worker, WorkSchedule, ScheduleException,
 │                      # DayConfig, Appointment, AppointmentEvent
 ├── ports.py           # Protocolo BusySlotsPort y NullBusySlots
-├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment)
-├── services/          # Casos de uso (booking, assignment, capacity, requesters, locking)
-├── tasks.py           # Celery
-├── admin.py           # Admin de Django (Appointment de solo lectura)
+├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment, list_waitlist)
+├── services/          # Casos de uso (booking, waitlist, assignment, capacity, requesters, locks)
+├── tasks.py           # Tareas Celery (process_waitlist_task, waitlist_maintenance_task)
+├── admin.py           # Admin de Django (Appointment sólo lectura, WaitlistTriggerMixin)
 ├── tests/             # Tests unitarios, de integración y de concurrencia
 └── migrations/        # Migraciones versionadas (incluye BtreeGistExtension)
 ```
 
 ## API (v1)
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/api/v1/availability/?date=&service=` | Horarios libres y cupo restante |
-| POST | `/api/v1/appointments/` | Solicitar cita (confirma o deja en espera) |
-| GET | `/api/v1/appointments/{id}/` | Detalle de cita por UUID |
-| POST | `/api/v1/appointments/{id}/cancel/` | Cancelar (Fase 4) |
-| POST | `/api/v1/appointments/{id}/reschedule/` | Reprogramar (Fase 5) |
-| GET/PUT | `/api/v1/day-configs/{date}/` | Cupo y apertura/cierre del día |
-| GET/PUT | `/api/v1/workers/{id}/schedule/` | Horario del trabajador |
-| POST | `/api/v1/workers/{id}/exceptions/` | Ausencia o día especial |
-| GET | `/api/v1/waitlist/?date=` | Citas en espera |
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| GET | `/api/v1/availability/?date=&service=` | Público | Horarios libres y cupo restante |
+| POST | `/api/v1/appointments/` | Público | Solicitar cita (confirma o deja en espera) |
+| GET | `/api/v1/appointments/{id}/` | Público | Detalle de cita por UUID (incluye `waitlist_position`) |
+| GET | `/api/v1/waitlist/?date=YYYY-MM-DD` | Staff (`IsAdminUser`) | Lista FIFO de citas en espera con posición |
+| POST | `/api/v1/appointments/{id}/cancel/` | Público (Fase 5) | Cancelar cita |
+| POST | `/api/v1/appointments/{id}/reschedule/` | Público (Fase 5) | Reprogramar cita |
+| GET/PUT | `/api/v1/day-configs/{date}/` | Staff (Fase 6) | Cupo y apertura/cierre del día |
+| GET/PUT | `/api/v1/workers/{id}/schedule/` | Staff (Fase 6) | Horario del trabajador |
+| POST | `/api/v1/workers/{id}/exceptions/` | Staff (Fase 6) | Ausencia o día especial |
 
 ---
 
@@ -314,7 +331,55 @@ agenda/
 
 ### Detalle de Cita (`GET /api/v1/appointments/{id}/`)
 
-Retorna `200 OK` con la misma estructura JSON que la creación o `404 Not Found` (`{"code": "appointment_not_found", "detail": "La cita solicitada no existe."}`) si el UUID no existe.
+Retorna `200 OK` con la información completa de la cita. Si la cita está en estado `WAITLISTED`, incluye el campo `waitlist_position` con la posición entera (`1`, `2`, …) dentro de la lista de espera para ese día. Si la cita ya está `CONFIRMED` o en otro estado, `waitlist_position` es `null`.
+
+```json
+{
+  "id": "9938b812-70b9-4a46-88fe-7096fb0081d4",
+  "status": "WAITLISTED",
+  "service": {
+    "id": 1,
+    "name": "Consulta General",
+    "duration_minutes": 30
+  },
+  "date": "2026-10-12",
+  "start_at": "2026-10-12T09:00:00-06:00",
+  "end_at": "2026-10-12T09:30:00-06:00",
+  "requester": {
+    "id": 2,
+    "full_name": "Carlos Ruiz",
+    "phone": "5551234567",
+    "email": "carlos@example.com"
+  },
+  "worker_name": null,
+  "waitlist_position": 1
+}
+```
+
+---
+
+### Listado de Lista de Espera (`GET /api/v1/waitlist/?date=YYYY-MM-DD`)
+
+Exclusivo para usuarios Staff (`IsAdminUser`). Parámetro `date` obligatorio.
+
+Retorna la lista ordenada FIFO (`created_at, id`) de las citas en espera para esa fecha con su posición actual:
+
+```json
+[
+  {
+    "id": "9938b812-70b9-4a46-88fe-7096fb0081d4",
+    "position": 1,
+    "requester_name": "Carlos Ruiz",
+    "service": {
+      "id": 1,
+      "name": "Consulta General",
+      "duration_minutes": 30
+    },
+    "start_at": "2026-10-12T09:00:00-06:00",
+    "created_at": "2026-10-07T12:00:00-06:00"
+  }
+]
+```
 
 ---
 
@@ -350,23 +415,41 @@ Utiliza `AppointmentBusySlots` para descontar citas en `OCCUPYING_STATUSES` de l
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `BOOKING_MIN_ADVANCE_HOURS` | 2 | Anticipación mínima para agendar |
-| `BOOKING_MAX_ADVANCE_DAYS` | 60 | Máximo de días a futuro |
+| `BOOKING_MIN_ADVANCE_HOURS` | 2 | Anticipación mínima para agendar (horas) |
+| `BOOKING_MAX_ADVANCE_DAYS` | 60 | Máximo de días a futuro para agendar |
 | `CANCEL_MIN_HOURS` | 4 | Anticipación mínima para cancelar/reprogramar |
-| `MAX_RESCHEDULES_PER_APPOINTMENT` | 2 | Reprogramaciones permitidas |
+| `MAX_RESCHEDULES_PER_APPOINTMENT` | 2 | Reprogramaciones permitidas por cita |
 | `MAX_ACTIVE_PER_REQUESTER_PER_DAY` | 1 | Citas activas por solicitante/día |
-| `WAITLIST_MAX_PER_DAY` | 20 | Tope de espera por día |
-| `DEFAULT_SLOT_STEP_MINUTES` | 15 | Granularidad de horarios ofrecidos |
+| `WAITLIST_MAX_PER_DAY` | 20 | Tope de citas en espera por día |
+| `DEFAULT_SLOT_STEP_MINUTES` | 15 | Granularidad de horarios ofrecidos (minutos) |
+| `WAITLIST_SWEEP_MINUTES` | 5 | Intervalo del barrido periódico de mantenimiento (minutos) |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | URL del broker Redis para tareas Celery |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/0` | Backend de resultados para Celery |
 
 ## Puesta en marcha
 
 ```bash
-uv sync                      # crea .venv e instala desde uv.lock
+uv sync                              # crea .venv e instala dependencias
 cp .env.example .env
-docker compose up -d db      # levanta PostgreSQL
+docker compose up -d db redis        # levanta PostgreSQL y Redis
 uv run python manage.py migrate
 uv run python manage.py seed_demo
-uv run python manage.py runserver
+uv run python manage.py runserver    # API en desarrollo
+```
+
+### Ejecutar Celery Worker y Beat
+
+```bash
+uv run celery -A config worker -l info   # procesador de tareas asíncronas
+uv run celery -A config beat -l info     # programador de tareas periódicas
+```
+
+### Comandos de gestión de lista de espera
+
+```bash
+uv run python manage.py process_waitlist                 # procesa todas las fechas activas
+uv run python manage.py process_waitlist --date 2026-10-12 # procesa una fecha específica
+uv run python manage.py expire_waitlist                  # expira citas en espera vencidas
 ```
 
 ### Tests y calidad

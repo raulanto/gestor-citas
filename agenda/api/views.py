@@ -150,4 +150,3 @@ class WaitlistView(APIView):
         entries = list_waitlist(target_date)
         serializer = WaitlistEntrySerializer(entries, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-

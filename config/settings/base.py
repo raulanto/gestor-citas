@@ -139,4 +139,3 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": WAITLIST_SWEEP_MINUTES * 60,
     },
 }
-

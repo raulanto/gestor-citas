@@ -17,6 +17,10 @@ uv run python manage.py makemigrations && uv run python manage.py migrate
 uv run pytest                                    # todos los tests
 uv run pytest agenda/tests/test_capacity.py -k nombre   # un test
 uv run ruff check . --fix && uv run ruff format .       # lint y formato
+uv run celery -A config worker -l info           # worker de Celery
+uv run celery -A config beat -l info             # Celery beat scheduler
+uv run python manage.py process_waitlist         # procesar lista de espera
+uv run python manage.py expire_waitlist          # expirar citas vencidas en espera
 uv add <paquete>                                 # dependencia de producción
 uv add --dev <paquete>                           # dependencia de desarrollo
 ```
@@ -32,10 +36,11 @@ api (views/serializers) → services / selectors → models
 ```
 
 - **`models/`**: campos, constraints, validaciones simples. Sin lógica de casos de uso.
-- **`services/`**: **toda** la lógica de negocio (reservar, asignar, cancelar, reprogramar, cambiar horarios). Funciones con tipos, que reciben datos primitivos/instancias y lanzan excepciones de dominio.
-- **`selectors/`**: consultas de solo lectura (disponibilidad, agenda del día). No modifican datos.
+- **`services/`**: **toda** la lógica de negocio (reservar, asignar, cancelar, reprogramar, procesar lista de espera, expirar, cambiar horarios). Funciones con tipos, que reciben datos primitivos/instancias y lanzan excepciones de dominio.
+- **`selectors/`**: consultas de solo lectura (disponibilidad, agenda del día, lista de espera). No modifican datos.
 - **`api/`**: serializers y viewsets delgados; validan formato, llaman a un service y traducen excepciones de dominio a HTTP. **Prohibido** poner reglas de negocio aquí.
 - **`tasks.py`**: Celery; solo llama a services.
+- **Admin**: los modelos de catálogo editados en admin (`Worker`, `WorkSchedule`, `ScheduleException`, `DayConfig`) usan `WaitlistTriggerMixin` para llamar a `schedule_waitlist_processing()` vía `transaction.on_commit`. El admin solo orquesta y no contiene lógica de negocio.
 
 Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, `NoWorkerAvailable`, `CancellationNotAllowed`, `RescheduleLimitReached`, …).
 
@@ -45,20 +50,23 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 2. **Cupo efectivo del día** = `min(DayConfig.max_appointments, capacidad_personal)`. `max_appointments` nulo = solo capacidad del personal. La función única es `services/capacity.py`; no recalcular en otro lado.
 3. **Capacidad del trabajador**: una cita no puede cruzar el descanso. La capacidad es la suma, por tramo continuo de trabajo, de `floor(minutos_del_tramo / duración)`. `services/capacity.py` es la única fuente de este cálculo y es puro (sin BD). Las excepciones por fecha (`ScheduleException`) prevalecen sobre el horario semanal. Día con `is_open=False` → no se agenda.
 4. **Asignación**: trabajador activo, dentro de horario, sin traslape; se elige el de menor carga del día (desempate por id). Sin trabajador libre → estado `EN_ESPERA`, nunca error al usuario (salvo tope de espera).
-5. **Lista de espera FIFO**: se reevalúa al cancelar, reprogramar, cambiar horarios, agregar personal o subir cupo. Hay un único punto de entrada: `assignment.process_waitlist(date)`.
-6. **Reprogramar** = crear la nueva cita pasando todas las validaciones y, solo si tiene éxito, marcar la anterior como `REPROGRAMADA` con `rescheduled_to`. Todo en una sola transacción.
-7. **Cancelar/reprogramar** respeta `CANCEL_MIN_HOURS` y `MAX_RESCHEDULES_PER_APPOINTMENT`.
-8. **Cambio de horario de un trabajador** revalida sus citas futuras: las que ya no caben se desasignan y pasan por asignación/espera.
-9. Cada cambio de estado escribe un `AppointmentEvent` (auditoría). No cambiar `status` directamente; usar services.
+5. **Lista de espera FIFO**: se reevalúa al cancelar, reprogramar, cambiar horarios, agregar/activar personal o reabrir un día. Subir el cupo **no** promueve citas porque `WAITLISTED` ya consumió cupo en su solicitud inicial. Hay un único punto de entrada: `services/waitlist.py::process_waitlist(date)`. Prohibido reimplementar la asignación en otros módulos.
+6. **FIFO sin bloqueo de cabecera:** se procesa por `created_at, id`. Si la primera cita en espera no cabe en su horario solicitado, no bloquea a las siguientes que soliciten otros horarios libres.
+7. **Reprogramar** = crear la nueva cita pasando todas las validaciones y, solo si tiene éxito, marcar la anterior como `REPROGRAMADA` con `rescheduled_to`. Todo en una sola transacción.
+8. **Cancelar/reprogramar** respeta `CANCEL_MIN_HOURS` y `MAX_RESCHEDULES_PER_APPOINTMENT`.
+9. **Cambio de horario de un trabajador** revalida sus citas futuras: las que ya no caben se desasignan y pasan por asignación/espera.
+10. Cada cambio de estado escribe un `AppointmentEvent` (auditoría). No cambiar `status` directamente; usar services.
 
 ## Concurrencia e integridad
 
-- **Serialización por día:** Reservar y asignar dentro de `transaction.atomic()` tomando un lock consultivo de PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())` (o `select_for_update()` sobre configuración/trabajadores). Esto serializa reservas por día sin requerir filas preexistentes de `DayConfig`.
+- **Serialización por día:** Reservar y asignar dentro de `transaction.atomic()` tomando un lock consultivo de PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())` (helper centralizado en `agenda/services/locks.py`). Esto serializa reservas por día sin requerir filas preexistentes de `DayConfig`.
 - **Red de seguridad en BD:** `ExclusionConstraint` de PostgreSQL (`tstzrange(start_at, end_at) &&` sobre `worker`) con `BtreeGistExtension` para impedir citas solapadas con trabajador asignado (`OCCUPYING_STATUSES`).
 - **El `status` solo cambia desde services:** Nunca mutar `status` o `worker` directamente en admin, vistas o señales. Cada transición escribe un `AppointmentEvent`.
 - **Ubicación de lógica clave:**
   - Estados y conjuntos (`QUOTA_STATUSES`, `OCCUPYING_STATUSES`, `ACTIVE_STATUSES`): en `agenda/constants.py`.
   - Asignación pura de personal (`pick_worker`): en `agenda/services/assignment.py`.
+  - Reasignación y expiración de lista de espera (`process_waitlist`, `expire_waitlist`): en `agenda/services/waitlist.py`.
+  - Locks por día (`day_advisory_lock`): en `agenda/services/locks.py`.
   - Identificación y normalización de solicitante (`get_or_create_requester`, `normalize_phone`): en `agenda/services/requesters.py`.
 - Constraints en BD cuando sea posible (únicos, checks de rango horario `start < end`).
 - Operaciones idempotentes en tareas Celery.
