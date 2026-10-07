@@ -35,7 +35,7 @@ def list_waitlist(target_date: datetime.date) -> list[WaitlistEntry]:
 
 
 def waitlist_position(appointment: Appointment) -> int | None:
-    """Return 1-based FIFO position of a waitlisted appointment on its date, or None if not waitlisted."""
+    """Return 1-based FIFO position on its date, or None if not waitlisted."""
     if appointment.status != AppointmentStatus.WAITLISTED:
         return None
 

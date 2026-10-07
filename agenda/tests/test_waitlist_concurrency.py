@@ -29,7 +29,7 @@ def tz():
 
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_waitlist_processing_threads(tz):
-    """4 threads running process_waitlist concurrently on the same date: each appointment assigned exactly once."""
+    """4 threads running process_waitlist: each appointment is assigned exactly once."""
     target_date = datetime.date(2026, 10, 12)
     service = ServiceFactory(duration_minutes=30)
     worker = WorkerFactory()
@@ -93,7 +93,7 @@ def test_concurrent_waitlist_processing_threads(tz):
 
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_booking_and_waitlist_processing(tz):
-    """Concurrent book_appointment and process_waitlist: never allows overlapping confirmed appointments for the same worker."""
+    """Simultaneous booking and waitlist: never creates overlapping confirmed appointments."""
     target_date = datetime.date(2026, 10, 12)
     service = ServiceFactory(duration_minutes=30)
     worker = WorkerFactory()
@@ -114,7 +114,7 @@ def test_concurrent_booking_and_waitlist_processing(tz):
     slot_end = slot_start + datetime.timedelta(minutes=30)
 
     # One existing waitlisted appointment for 10:00
-    waitlisted_appt = AppointmentFactory(
+    AppointmentFactory(
         worker=None,
         service=service,
         date=target_date,

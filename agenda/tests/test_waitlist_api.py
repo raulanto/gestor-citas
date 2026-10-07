@@ -152,7 +152,9 @@ def test_waitlist_api_fifo_order_and_positions(api_client, staff_user, tz):
 
 
 @pytest.mark.django_db
-def test_waitlist_api_no_n_plus_one_queries(api_client, staff_user, django_assert_max_num_queries, tz):
+def test_waitlist_api_no_n_plus_one_queries(
+    api_client, staff_user, django_assert_max_num_queries, tz
+):
     """GET /api/v1/waitlist/ retrieves waitlisted items without N+1 query overhead."""
     api_client.force_authenticate(user=staff_user)
     target_date = datetime.date(2026, 10, 12)
@@ -180,7 +182,7 @@ def test_waitlist_api_no_n_plus_one_queries(api_client, staff_user, django_asser
 
 @pytest.mark.django_db
 def test_appointment_detail_waitlist_position(api_client, tz):
-    """GET /api/v1/appointments/{id}/ includes waitlist_position (int when waitlisted, null when confirmed)."""
+    """GET /api/v1/appointments/{id}/ includes waitlist_position (int or null)."""
     target_date = datetime.date(2026, 10, 12)
     service = ServiceFactory(duration_minutes=30)
     worker = WorkerFactory()

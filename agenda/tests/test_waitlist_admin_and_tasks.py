@@ -13,7 +13,7 @@ from django.db import transaction
 
 from agenda.admin import DayConfigAdmin, WorkerAdmin
 from agenda.constants import AppointmentStatus
-from agenda.models import Appointment, DayConfig, ScheduleException, Weekday, Worker, WorkSchedule
+from agenda.models import DayConfig, Weekday, Worker
 from agenda.services.waitlist import schedule_waitlist_processing
 from agenda.tasks import (
     process_waitlist_all_task,
@@ -23,7 +23,6 @@ from agenda.tasks import (
 from agenda.tests.factories import (
     AppointmentFactory,
     DayConfigFactory,
-    ScheduleExceptionFactory,
     ServiceFactory,
     WorkerFactory,
     WorkScheduleFactory,
@@ -97,6 +96,7 @@ def test_admin_day_config_reopen_trigger(django_capture_on_commit_callbacks, tz)
     )
 
     day_cfg = DayConfigFactory(
+        weekday=None,
         date=target_date,
         is_open=False,
         max_appointments=20,
@@ -184,7 +184,7 @@ def test_celery_eager_tasks(tz):
 
 
 def test_celery_beat_schedule_configuration():
-    """Verify Celery Beat schedule contains waitlist-maintenance-sweep task and configured interval."""
+    """Verify Celery Beat schedule contains waitlist sweep task and configured interval."""
     beat_schedule = getattr(settings, "CELERY_BEAT_SCHEDULE", {})
     assert "waitlist-maintenance-sweep" in beat_schedule
     sweep_config = beat_schedule["waitlist-maintenance-sweep"]
@@ -222,7 +222,7 @@ def test_management_command_process_waitlist_with_date(tz):
     out = StringIO()
     call_command("process_waitlist", date="2026-10-12", stdout=out)
     output = out.getvalue()
-    assert "Asignadas: 1" in output
+    assert "1 citas asignadas" in output
 
     appt.refresh_from_db()
     assert appt.status == AppointmentStatus.CONFIRMED
@@ -258,7 +258,7 @@ def test_management_command_process_waitlist_all_dates(tz):
     out = StringIO()
     call_command("process_waitlist", stdout=out)
     output = out.getvalue()
-    assert "Total de citas asignadas: 1" in output
+    assert "1 citas asignadas en total" in output
 
     appt.refresh_from_db()
     assert appt.status == AppointmentStatus.CONFIRMED
@@ -282,7 +282,7 @@ def test_management_command_expire_waitlist(tz):
     out = StringIO()
     call_command("expire_waitlist", stdout=out)
     output = out.getvalue()
-    assert "Expiradas: 1" in output
+    assert "expiradas 1 citas en espera" in output
 
     appt.refresh_from_db()
     assert appt.status == AppointmentStatus.EXPIRED

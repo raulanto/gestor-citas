@@ -146,7 +146,7 @@ def process_waitlist(
 
 
 def process_waitlist_all(now: datetime.datetime | None = None) -> list[WaitlistResult]:
-    """Process waitlist for all dates from today onwards that have pending waitlisted appointments."""
+    """Process waitlist for all dates from today onwards with pending waitlisted appointments."""
     tz = ZoneInfo(settings.TIME_ZONE)
     if now is None:
         now = timezone.now()

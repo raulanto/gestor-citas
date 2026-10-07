@@ -38,7 +38,6 @@ from agenda.services.capacity import (
 from agenda.services.locks import day_advisory_lock
 
 
-
 @dataclass(frozen=True)
 class BookingResult:
     """Result of booking an appointment."""

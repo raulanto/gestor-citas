@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from django.conf import settings
 
-from agenda.constants import AppointmentStatus, EventNote, QUOTA_STATUSES
+from agenda.constants import QUOTA_STATUSES, AppointmentStatus, EventNote
 from agenda.models import Appointment, AppointmentEvent
 from agenda.services.waitlist import expire_waitlist
 from agenda.tests.factories import (
@@ -24,7 +24,7 @@ def tz():
 
 @pytest.mark.django_db
 def test_expire_past_waitlisted_appointments(tz):
-    """Past waitlisted appointments (start_at <= now) are marked EXPIRED with event, future waitlisted remain."""
+    """Past waitlisted appointments (start_at <= now) are marked EXPIRED, futures remain."""
     service = ServiceFactory(duration_minutes=30)
     worker = WorkerFactory()
     now_dt = datetime.datetime(2026, 10, 12, 12, 0, tzinfo=tz)
@@ -70,7 +70,8 @@ def test_expire_past_waitlisted_appointments(tz):
         date=datetime.date(2026, 10, 12),
         status__in=QUOTA_STATUSES,
     ).count()
-    assert active_before == 3  # past_appt (WAITLISTED), future_appt (WAITLISTED), past_confirmed (CONFIRMED)
+    # past_appt (WAITLISTED), future_appt (WAITLISTED), past_confirmed (CONFIRMED)
+    assert active_before == 3
 
     expired_count = expire_waitlist(now=now_dt)
     assert expired_count == 1

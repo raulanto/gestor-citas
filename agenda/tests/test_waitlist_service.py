@@ -6,14 +6,13 @@ from zoneinfo import ZoneInfo
 import pytest
 from django.conf import settings
 
-from agenda.constants import AppointmentStatus, EventNote, QUOTA_STATUSES
-from agenda.models import Appointment, AppointmentEvent, ExceptionKind, Weekday
+from agenda.constants import QUOTA_STATUSES, AppointmentStatus, EventNote
+from agenda.models import Appointment, AppointmentEvent, ExceptionKind, Weekday, WorkSchedule
 from agenda.services.waitlist import process_waitlist, process_waitlist_all
 from agenda.tests.factories import (
     AppointmentEventFactory,
     AppointmentFactory,
     DayConfigFactory,
-    RequesterFactory,
     ScheduleExceptionFactory,
     ServiceFactory,
     WorkerFactory,
@@ -52,14 +51,14 @@ def base_setup(target_date, tz):
 
 @pytest.mark.django_db
 def test_waitlist_promotion_when_worker_freed(base_setup, target_date, tz):
-    """A waitlisted appointment is promoted to CONFIRMED with worker and event when worker is freed."""
+    """A waitlisted appointment is promoted to CONFIRMED when worker is freed."""
     service, worker = base_setup
     start_at = datetime.datetime(2026, 10, 12, 10, 0, tzinfo=tz)
     end_at = start_at + datetime.timedelta(minutes=30)
     now_dt = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=tz)
 
     # Initial blocking appointment (simulating another appointment that was cancelled)
-    blocking_appt = AppointmentFactory(
+    AppointmentFactory(
         worker=worker,
         service=service,
         date=target_date,
@@ -106,7 +105,7 @@ def test_waitlist_promotion_when_worker_freed(base_setup, target_date, tz):
 
 @pytest.mark.django_db
 def test_waitlist_fifo_order(base_setup, target_date, tz):
-    """Two appointments competing for the same slot: older created_at gets assigned, newer remains waitlisted."""
+    """Two appointments for same slot: older created_at gets assigned, newer stays waitlisted."""
     service, worker = base_setup
     start_at = datetime.datetime(2026, 10, 12, 10, 0, tzinfo=tz)
     end_at = start_at + datetime.timedelta(minutes=30)
@@ -152,7 +151,7 @@ def test_waitlist_fifo_order(base_setup, target_date, tz):
 
 @pytest.mark.django_db
 def test_waitlist_no_head_of_line_blocking(base_setup, target_date, tz):
-    """If the first waitlisted appointment cannot be served, the second for another slot is still assigned."""
+    """If the first waitlisted cannot be served, the second for another slot is assigned."""
     service, worker = base_setup
     now_dt = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=tz)
 
@@ -264,12 +263,13 @@ def test_waitlist_multiple_workers_load_balancing(target_date, tz):
 
 @pytest.mark.django_db
 def test_waitlist_closed_day_and_reopen(base_setup, target_date, tz):
-    """A closed day does not assign waitlist; reopening the day and running process_waitlist assigns it."""
+    """A closed day does not assign waitlist; reopening the day assigns it."""
     service, worker = base_setup
     now_dt = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=tz)
 
     # Specific date closed
     day_cfg = DayConfigFactory(
+        weekday=None,
         date=target_date,
         is_open=False,
         max_appointments=20,
@@ -382,7 +382,7 @@ def test_waitlist_absence_deleted(base_setup, target_date, tz):
 
 @pytest.mark.django_db
 def test_waitlist_schedule_changed_no_longer_covers(base_setup, target_date, tz):
-    """If the worker's shift changed and no longer covers the slot, appointment remains waitlisted."""
+    """If the worker's shift no longer covers the slot, appointment remains waitlisted."""
     service, worker = base_setup
     now_dt = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=tz)
 
@@ -416,7 +416,7 @@ def test_waitlist_active_count_remains_constant(base_setup, target_date, tz):
     service, worker = base_setup
     now_dt = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=tz)
 
-    appt = AppointmentFactory(
+    AppointmentFactory(
         worker=None,
         service=service,
         date=target_date,
