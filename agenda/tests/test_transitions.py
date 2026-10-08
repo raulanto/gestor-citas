@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from django.contrib.auth import get_user_model
 
-from agenda.constants import ALLOWED_TRANSITIONS, AppointmentStatus
+from agenda.constants import AppointmentStatus, EventNote
 from agenda.exceptions import InvalidStateTransition
-from agenda.models import Appointment, AppointmentEvent
-from agenda.services.transitions import transition
+from agenda.models import AppointmentEvent
+from agenda.services.transitions import reassign_worker, transition
 from agenda.tests.factories import AppointmentFactory, WorkerFactory
 
 User = get_user_model()
@@ -61,6 +61,69 @@ def test_allowed_transitions_succeed_and_record_event(from_status, to_status):
 
 
 @pytest.mark.django_db
+def test_confirmed_to_waitlisted_via_revalidation():
+    appointment = AppointmentFactory(status=AppointmentStatus.CONFIRMED)
+    user = User.objects.create_user(username="revalidation_user")
+
+    # 1. Without via_revalidation -> InvalidStateTransition
+    with pytest.raises(InvalidStateTransition):
+        transition(
+            appointment,
+            AppointmentStatus.WAITLISTED,
+            actor=user,
+            worker=None,
+            via_revalidation=False,
+        )
+
+    # 2. With via_revalidation=True -> Success
+    updated = transition(
+        appointment,
+        AppointmentStatus.WAITLISTED,
+        actor=user,
+        note=EventNote.WAITLISTED_SCHEDULE_CHANGE,
+        worker=None,
+        via_revalidation=True,
+    )
+
+    appointment.refresh_from_db()
+    assert appointment.status == AppointmentStatus.WAITLISTED
+    assert appointment.worker is None
+    assert updated.status == AppointmentStatus.WAITLISTED
+
+    event = AppointmentEvent.objects.filter(appointment=appointment).latest("created_at")
+    assert event.from_status == AppointmentStatus.CONFIRMED
+    assert event.to_status == AppointmentStatus.WAITLISTED
+    assert event.note == EventNote.WAITLISTED_SCHEDULE_CHANGE
+
+
+@pytest.mark.django_db
+def test_reassign_worker_service():
+    worker1 = WorkerFactory()
+    worker2 = WorkerFactory()
+    appointment = AppointmentFactory(status=AppointmentStatus.CONFIRMED, worker=worker1)
+    user = User.objects.create_user(username="reassigner")
+
+    updated = reassign_worker(
+        appointment,
+        worker2,
+        actor=user,
+        note=EventNote.REASSIGNED_SCHEDULE_CHANGE,
+    )
+
+    appointment.refresh_from_db()
+    assert appointment.status == AppointmentStatus.CONFIRMED
+    assert appointment.worker == worker2
+    assert updated.worker == worker2
+
+    event = AppointmentEvent.objects.filter(appointment=appointment).latest("created_at")
+    assert event.from_status == AppointmentStatus.CONFIRMED
+    assert event.to_status == AppointmentStatus.CONFIRMED
+    assert event.worker == worker2
+    assert event.actor == user
+    assert event.note == EventNote.REASSIGNED_SCHEDULE_CHANGE
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "from_status,to_status",
     [
@@ -97,8 +160,8 @@ def test_disallowed_transitions_raise_invalid_state_transition(from_status, to_s
     )
 
 
-def test_transition_guardian_no_direct_status_mutation():
-    """Guardian test: verify no file in agenda/ outside transitions.py assigns .status = or updates it."""
+def test_transition_guardian_no_direct_status_or_worker_mutation():
+    """Guardian test: verify no file outside transitions.py assigns .status = or .worker =."""
     root_dir = Path(__file__).resolve().parent.parent  # agenda/
     violations = []
 
@@ -121,18 +184,28 @@ def test_transition_guardian_no_direct_status_mutation():
             continue
 
         for node in ast.walk(tree):
-            # Check for: x.status = ...
+            # Check for: x.status = ... or x.worker = ... (excluding self in model definitions or forms)
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Attribute) and target.attr == "status":
-                        violations.append(f"{rel_path}:{node.lineno} assigns directly to .status")
-            # Check for: x.update(..., status=...) or filter(...).update(status=...)
+                    if isinstance(target, ast.Attribute) and target.attr in ("status", "worker"):
+                        # Skip if it's a class field definition like worker = models.ForeignKey(...) or status = models.CharField(...)
+                        is_model_field = False
+                        if isinstance(node.value, ast.Call) and isinstance(
+                            node.value.func, ast.Attribute
+                        ):
+                            if isinstance(node.value.func.value, ast.Name) and node.value.func.value.id == "models":
+                                is_model_field = True
+                        if not is_model_field:
+                            violations.append(
+                                f"{rel_path}:{node.lineno} assigns directly to .{target.attr}"
+                            )
+            # Check for: x.update(..., status=...) or x.update(..., worker=...)
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr == "update":
                     for keyword in node.keywords:
-                        if keyword.arg == "status":
+                        if keyword.arg in ("status", "worker"):
                             violations.append(
-                                f"{rel_path}:{node.lineno} calls .update(status=...)"
+                                f"{rel_path}:{node.lineno} calls .update({keyword.arg}=...)"
                             )
 
-    assert not violations, f"Guardian violations found:\n" + "\n".join(violations)
+    assert not violations, "Guardian violations found:\n" + "\n".join(violations)

@@ -21,8 +21,25 @@ from agenda.services import (
     complete_appointment,
     mark_no_show,
     process_waitlist,
+    revalidate_worker,
     schedule_waitlist_processing,
 )
+
+
+def _handle_worker_revalidation_message(request: HttpRequest, result) -> None:
+    if result.displaced or result.over_quota or result.unserviceable:
+        details = []
+        if result.reassigned:
+            details.append(f"{result.reassigned} reasignadas")
+        if result.waitlisted:
+            details.append(f"{result.waitlisted} a lista de espera")
+        if result.unserviceable:
+            details.append(f"{result.unserviceable} inatendibles")
+        if result.over_quota:
+            details.append(f"fechas en sobrecupo: {', '.join(result.over_quota)}")
+
+        msg = f"Aviso de revalidación de horario: {', '.join(details)}."
+        messages.warning(request, msg)
 
 
 class WaitlistTriggerMixin:
@@ -222,9 +239,58 @@ class WorkerAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
     search_fields = ("full_name", "user__username", "user__email")
     inlines = [WorkScheduleInline, ScheduleExceptionInline]
 
+    def save_model(self, request: HttpRequest, obj: Worker, form, change) -> None:
+        super().save_model(request, obj, form, change)
+        result = revalidate_worker(obj.id, actor=request.user)
+        _handle_worker_revalidation_message(request, result)
+
+    def save_formset(self, request: HttpRequest, form, formset, change) -> None:
+        super().save_formset(request, form, formset, change)
+        if form.instance and isinstance(form.instance, Worker):
+            result = revalidate_worker(form.instance.id, actor=request.user)
+            _handle_worker_revalidation_message(request, result)
+
     def has_delete_permission(self, request: HttpRequest, obj: Worker | None = None) -> bool:
         """Disallow physical deletion of workers (deactivate via is_active instead)."""
         return False
+
+
+@admin.register(WorkSchedule)
+class WorkScheduleAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
+    """Admin interface for managing individual work schedule entries."""
+
+    list_display = ("worker", "weekday", "start_time", "end_time", "break_start", "break_end")
+    list_filter = ("weekday", "worker")
+
+    def save_model(self, request: HttpRequest, obj: WorkSchedule, form, change) -> None:
+        super().save_model(request, obj, form, change)
+        result = revalidate_worker(obj.worker_id, actor=request.user)
+        _handle_worker_revalidation_message(request, result)
+
+    def delete_model(self, request: HttpRequest, obj: WorkSchedule) -> None:
+        worker_id = obj.worker_id
+        super().delete_model(request, obj)
+        result = revalidate_worker(worker_id, actor=request.user)
+        _handle_worker_revalidation_message(request, result)
+
+
+@admin.register(ScheduleException)
+class ScheduleExceptionAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
+    """Admin interface for managing schedule exceptions."""
+
+    list_display = ("worker", "date", "kind", "start_time", "end_time", "reason")
+    list_filter = ("kind", "date", "worker")
+
+    def save_model(self, request: HttpRequest, obj: ScheduleException, form, change) -> None:
+        super().save_model(request, obj, form, change)
+        result = revalidate_worker(obj.worker_id, actor=request.user)
+        _handle_worker_revalidation_message(request, result)
+
+    def delete_model(self, request: HttpRequest, obj: ScheduleException) -> None:
+        worker_id = obj.worker_id
+        super().delete_model(request, obj)
+        result = revalidate_worker(worker_id, actor=request.user)
+        _handle_worker_revalidation_message(request, result)
 
 
 @admin.register(Service)
@@ -267,7 +333,10 @@ class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
             if active_appts:
                 self.message_user(
                     request,
-                    f"Atención: existen {len(active_appts)} citas activas para la fecha {obj.date} que deben reprogramarse o cancelarse.",
+                    (
+                        f"Atención: existen {len(active_appts)} citas activas para la fecha "
+                        f"{obj.date} que deben reprogramarse o cancelarse."
+                    ),
                     level=messages.WARNING,
                 )
 
@@ -278,4 +347,3 @@ class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
         elif obj.weekday is not None:
             return f"Día semanal: {obj.get_weekday_display()}"
         return "Sin definir"
-

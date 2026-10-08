@@ -27,7 +27,18 @@ from agenda.services.locks import (
     day_advisory_locks,
 )
 from agenda.services.requesters import get_or_create_requester, normalize_phone
-from agenda.services.transitions import transition
+from agenda.services.schedules import (
+    DisplacedAppointmentInfo,
+    RevalidationResult,
+    ScheduleChangeResult,
+    add_exception,
+    remove_exception,
+    revalidate_all,
+    revalidate_worker,
+    set_weekly_schedule,
+    set_worker_active,
+)
+from agenda.services.transitions import reassign_worker, transition
 from agenda.services.waitlist import (
     WaitlistResult,
     expire_waitlist,
@@ -38,10 +49,14 @@ from agenda.services.waitlist import (
 
 __all__ = [
     "BookingResult",
+    "DisplacedAppointmentInfo",
     "Interval",
+    "RevalidationResult",
+    "ScheduleChangeResult",
     "Shift",
     "WaitlistResult",
     "acquire_day_advisory_lock",
+    "add_exception",
     "book_appointment",
     "cancel_appointment",
     "cancel_appointments_for_day",
@@ -59,10 +74,15 @@ __all__ = [
     "pick_worker",
     "process_waitlist",
     "process_waitlist_all",
+    "reassign_worker",
+    "remove_exception",
     "reschedule_appointment",
+    "revalidate_all",
+    "revalidate_worker",
     "schedule_waitlist_processing",
+    "set_weekly_schedule",
+    "set_worker_active",
     "transition",
     "work_segments",
     "worker_capacity",
 ]
-

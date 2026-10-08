@@ -13,11 +13,14 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
     Delegates all other exceptions to DRF's default exception handler.
     """
     if isinstance(exc, DomainError):
+        data = {
+            "code": exc.code,
+            "detail": exc.detail,
+        }
+        if hasattr(exc, "impact") and exc.impact is not None:
+            data["impact"] = exc.impact
         return Response(
-            {
-                "code": exc.code,
-                "detail": exc.detail,
-            },
+            data,
             status=exc.http_status,
         )
 

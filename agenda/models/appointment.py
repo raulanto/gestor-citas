@@ -85,11 +85,6 @@ class Appointment(models.Model):
     created_at = models.DateTimeField("creado el", auto_now_add=True)
     updated_at = models.DateTimeField("actualizado el", auto_now=True)
 
-    @property
-    def rescheduled_to(self) -> "Appointment | None":
-        """Return the appointment that was rescheduled from this one, if any."""
-        return self.rescheduled_children.first()
-
     class Meta:
         verbose_name = "cita"
         verbose_name_plural = "citas"
@@ -141,3 +136,7 @@ class Appointment(models.Model):
         if self.rescheduled_from_id and self.rescheduled_from_id == self.id:
             raise ValidationError("Una cita no puede ser su propio origen de reprogramación.")
 
+    @property
+    def rescheduled_to(self) -> "Appointment | None":
+        """Return the appointment that was rescheduled from this one, if any."""
+        return self.rescheduled_children.first()

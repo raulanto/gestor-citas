@@ -67,6 +67,9 @@ class EventNote:
     RESCHEDULED = "Cita reprogramada."
     COMPLETED = "Cita completada."
     NO_SHOW = "Inasistencia registrada."
+    REASSIGNED_SCHEDULE_CHANGE = "Reasignada por cambio de horario"
+    WAITLISTED_SCHEDULE_CHANGE = "Enviada a espera por cambio de horario"
+    WORKER_REASSIGNED = "Trabajador reasignado"
 
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -84,6 +87,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
             AppointmentStatus.RESCHEDULED,
             AppointmentStatus.COMPLETED,
             AppointmentStatus.NO_SHOW,
+            AppointmentStatus.WAITLISTED,
         }
     ),
     AppointmentStatus.CANCELLED: frozenset(),
@@ -93,4 +97,3 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     AppointmentStatus.NO_SHOW: frozenset(),
     AppointmentStatus.REQUESTED: frozenset(),
 }
-

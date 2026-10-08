@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from agenda.constants import ALLOWED_TRANSITIONS, AppointmentStatus
+from agenda.constants import ALLOWED_TRANSITIONS, AppointmentStatus, EventNote
 from agenda.exceptions import InvalidStateTransition
 from agenda.models import Appointment, AppointmentEvent, Worker
 
@@ -16,6 +16,7 @@ def transition(
     actor: Any = None,
     note: str = "",
     worker: Worker | None | object = _UNSET,
+    via_revalidation: bool = False,
 ) -> Appointment:
     """Validate and perform an appointment status transition, recording an audit event.
 
@@ -29,6 +30,13 @@ def transition(
         raise InvalidStateTransition(
             f"No se permite la transición de estado desde {from_status} hacia {to_status}."
         )
+
+    # Restriction: CONFIRMED -> WAITLISTED is only allowed when via_revalidation=True
+    if from_status == AppointmentStatus.CONFIRMED and to_status == AppointmentStatus.WAITLISTED:
+        if not via_revalidation:
+            raise InvalidStateTransition(
+                "La transición de confirmada a lista de espera solo está permitida mediante revalidación."
+            )
 
     appointment.status = str(to_status)
     update_fields = ["status", "updated_at"]
@@ -44,6 +52,37 @@ def transition(
         from_status=from_status,
         to_status=str(to_status),
         worker=appointment.worker,
+        actor=actor,
+        note=note,
+    )
+
+    return appointment
+
+
+def reassign_worker(
+    appointment: Appointment,
+    new_worker: Worker,
+    *,
+    actor: Any = None,
+    note: str = EventNote.WORKER_REASSIGNED,
+) -> Appointment:
+    """Reassign an appointment to a new worker, preserving status and recording an audit event.
+
+    This is the single entry point for reassigning a worker on a confirmed appointment.
+    """
+    if appointment.status != AppointmentStatus.CONFIRMED:
+        raise InvalidStateTransition(
+            f"Solo se puede reasignar trabajador en citas confirmadas, no en '{appointment.status}'."
+        )
+
+    appointment.worker = new_worker
+    appointment.save(update_fields=["worker", "updated_at"])
+
+    AppointmentEvent.objects.create(
+        appointment=appointment,
+        from_status=appointment.status,
+        to_status=appointment.status,
+        worker=new_worker,
         actor=actor,
         note=note,
     )

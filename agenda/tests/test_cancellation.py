@@ -7,14 +7,12 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
-from agenda.constants import AppointmentStatus, EventNote
+from agenda.constants import AppointmentStatus
 from agenda.exceptions import CancellationNotAllowed, InvalidStateTransition
-from agenda.models import Appointment, AppointmentEvent
+from agenda.models import AppointmentEvent
 from agenda.services.cancellation import cancel_appointment, cancel_appointments_for_day
-from agenda.services.waitlist import process_waitlist
 from agenda.tests.factories import (
     AppointmentFactory,
-    RequesterFactory,
     ServiceFactory,
     WorkerFactory,
     WorkScheduleFactory,

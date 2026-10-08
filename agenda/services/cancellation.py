@@ -30,8 +30,9 @@ def cancel_appointment(
     force: bool = False,
     now: datetime.datetime | None = None,
 ) -> Appointment:
-    """Cancel an appointment respecting advance notice rules, releasing capacity and triggering waitlist.
+    """Cancel an appointment respecting advance notice rules, releasing capacity.
 
+    Triggers waitlist processing on the same date.
     If force is True (staff only), advance notice rules are bypassed.
     If the appointment is already CANCELLED, returns success idempotently without extra events.
     """
@@ -196,7 +197,6 @@ def cancel_appointments_for_day(
     now: datetime.datetime | None = None,
 ) -> int:
     """Cancel all active future appointments for a specific date (Staff only)."""
-    tz = ZoneInfo(settings.TIME_ZONE)
     if now is None:
         now = timezone.now()
 

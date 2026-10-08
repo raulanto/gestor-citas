@@ -133,3 +133,29 @@ class ServiceNotFound(DomainError):
     code = "service_not_found"
     detail = "El servicio solicitado no existe o se encuentra inactivo."
     http_status = 404
+
+
+class WorkerNotFound(DomainError):
+    """Raised when a requested worker does not exist."""
+
+    code = "worker_not_found"
+    detail = "El trabajador solicitado no existe."
+    http_status = 404
+
+
+class ScheduleChangeNeedsConfirmation(DomainError):
+    """Raised when a schedule change impacts existing appointments and requires explicit confirmation."""
+
+    code = "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION"
+    detail = "El cambio de horario afecta citas existentes y requiere confirmación."
+    http_status = 409
+
+    def __init__(
+        self,
+        impact: dict | None = None,
+        detail: str | None = None,
+        code: str | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        self.impact = impact if impact is not None else {}
+        super().__init__(detail=detail, code=code, http_status=http_status)

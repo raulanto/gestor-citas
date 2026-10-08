@@ -37,9 +37,7 @@ def complete_appointment(
 
         appt_start_local = timezone.localtime(appointment.start_at, tz)
         if now_local < appt_start_local:
-            raise InvalidStateTransition(
-                "No se puede completar una cita que aún no ha iniciado."
-            )
+            raise InvalidStateTransition("No se puede completar una cita que aún no ha iniciado.")
 
         return transition(
             appointment,

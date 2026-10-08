@@ -4,6 +4,7 @@ import datetime
 
 from celery import shared_task
 
+from agenda.services.schedules import revalidate_all
 from agenda.services.waitlist import (
     expire_waitlist,
     process_waitlist,
@@ -36,12 +37,16 @@ def process_waitlist_all_task() -> dict:
 
 @shared_task(name="agenda.tasks.waitlist_maintenance_task")
 def waitlist_maintenance_task() -> dict:
-    """Periodic maintenance: expire past waitlisted appointments and promote active ones."""
+    """Periodic maintenance: expire past waitlist, revalidate all worker shifts, promote waitlist."""
     expired_count = expire_waitlist()
+    revalidation_results = revalidate_all()
     results = process_waitlist_all()
     total_assigned = sum(len(r.assigned) for r in results)
+    total_displaced = sum(len(r.displaced) for r in revalidation_results)
     return {
         "expired_count": expired_count,
+        "revalidated_workers_count": len(revalidation_results),
+        "total_displaced": total_displaced,
         "processed_dates_count": len(results),
         "total_assigned": total_assigned,
     }

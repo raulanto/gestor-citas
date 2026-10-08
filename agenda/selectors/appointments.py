@@ -63,4 +63,3 @@ def list_appointments_queryset(
         qs = qs.filter(status=status_filter)
 
     return qs
-

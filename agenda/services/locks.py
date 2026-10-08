@@ -9,14 +9,14 @@ from django.db import connection
 # Advisory lock namespace identifier for appointment bookings and waitlist processing
 APPOINTMENT_BOOKING_LOCK_NAMESPACE = 42
 
-_sqlite_locks: dict[datetime.date, threading.Lock] = {}
+_sqlite_locks: dict[datetime.date, threading.RLock] = {}
 _sqlite_global_lock = threading.Lock()
 
 
-def _get_sqlite_lock(target_date: datetime.date) -> threading.Lock:
+def _get_sqlite_lock(target_date: datetime.date) -> threading.RLock:
     with _sqlite_global_lock:
         if target_date not in _sqlite_locks:
-            _sqlite_locks[target_date] = threading.Lock()
+            _sqlite_locks[target_date] = threading.RLock()
         return _sqlite_locks[target_date]
 
 
@@ -68,4 +68,3 @@ def day_advisory_locks(*target_dates: datetime.date):
             yield
     else:
         yield
-
