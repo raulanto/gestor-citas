@@ -1,5 +1,4 @@
-"""Authentication API views for JWT token issuing, refresh, revocation, and profile."""
-
+import hashlib
 import time
 
 from django.conf import settings
@@ -20,14 +19,19 @@ from agenda.api.auth.serializers import (
     TokenRefreshSerializer,
 )
 from agenda.api.roles import Role, get_user_role
+from agenda.logging import log_event
+
+
+def _get_user_hash(username: str) -> str:
+    return hashlib.sha256(username.lower().strip().encode("utf-8")).hexdigest()
 
 
 def _get_lockout_key(username: str) -> str:
-    return f"auth_lockout_{username.lower().strip()}"
+    return f"auth_lockout_{_get_user_hash(username)}"
 
 
 def _get_attempts_key(username: str) -> str:
-    return f"auth_attempts_{username.lower().strip()}"
+    return f"auth_attempts_{_get_user_hash(username)}"
 
 
 class LoginView(APIView):
@@ -50,6 +54,7 @@ class LoginView(APIView):
         username = serializer.validated_data["username"]
         password = serializer.validated_data["password"]
 
+        user_hash = _get_user_hash(username)[:8]
         lockout_key = _get_lockout_key(username)
         attempts_key = _get_attempts_key(username)
 
@@ -80,6 +85,7 @@ class LoginView(APIView):
             if attempts >= max_attempts:
                 cache.set(lockout_key, now_ts + lockout_secs, timeout=lockout_secs)
                 cache.delete(attempts_key)
+                log_event("login_locked", user_hash=user_hash)
                 response = Response(
                     {
                         "code": "LOGIN_LOCKED",
@@ -91,6 +97,7 @@ class LoginView(APIView):
                 return response
 
             cache.set(attempts_key, attempts, timeout=lockout_secs)
+            log_event("login_failed", user_hash=user_hash)
             return Response(
                 {
                     "code": "INVALID_CREDENTIALS",
@@ -98,6 +105,7 @@ class LoginView(APIView):
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
 
         cache.delete(attempts_key)
         cache.delete(lockout_key)

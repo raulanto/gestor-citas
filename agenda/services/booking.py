@@ -26,8 +26,10 @@ from agenda.exceptions import (
     ServiceNotFound,
     WaitlistFull,
 )
+from agenda.logging import log_event
 from agenda.models import Appointment, AppointmentEvent, Requester, Service, Worker
 from agenda.selectors.day_configs import resolve_day_config
+
 from agenda.selectors.workers import list_available_workers_on
 from agenda.services.assignment import pick_worker
 from agenda.services.capacity import (
@@ -203,11 +205,13 @@ def create_appointment_in_lock(
             actor=actor,
             note="Cita reservada y confirmada.",
         )
-        return BookingResult(
-            appointment=appointment,
-            outcome=AppointmentStatus.CONFIRMED,
-            manage_token=token,
-        )
+    outcome = AppointmentStatus.CONFIRMED
+    log_event("appointment_booked", appointment_id=str(appointment.id), outcome=outcome)
+    return BookingResult(
+        appointment=appointment,
+        outcome=outcome,
+        manage_token=token,
+    )
 
     # 8. No free worker -> Check allow_waitlist or WaitlistFull
     if not allow_waitlist:
@@ -242,11 +246,14 @@ def create_appointment_in_lock(
         actor=actor,
         note="Cita colocada en lista de espera.",
     )
+    outcome = AppointmentStatus.WAITLISTED
+    log_event("appointment_booked", appointment_id=str(appointment.id), outcome=outcome)
     return BookingResult(
         appointment=appointment,
-        outcome=AppointmentStatus.WAITLISTED,
+        outcome=outcome,
         manage_token=token,
     )
+
 
 
 def book_appointment(

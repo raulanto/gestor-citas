@@ -9,7 +9,9 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from agenda.constants import OCCUPYING_STATUSES, AppointmentStatus, EventNote
+from agenda.logging import log_event
 from agenda.models import Appointment, Worker
+
 from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.waitlist import dates_with_waitlist
 from agenda.selectors.workers import list_available_workers_on
@@ -131,6 +133,7 @@ def process_waitlist(
                 busy_map[assigned_worker.id].append(slot_interval)
                 daily_loads[assigned_worker.id] += 1
                 assigned_list.append(appt)
+                log_event("waitlist_assigned", appointment_id=str(appt.id), worker_id=assigned_worker.id)
 
         remaining_count = Appointment.objects.filter(
             date=target_date,
@@ -179,9 +182,11 @@ def expire_waitlist(now: datetime.datetime | None = None) -> int:
                     AppointmentStatus.EXPIRED,
                     note=EventNote.WAITLIST_EXPIRED,
                 )
+                log_event("waitlist_expired", appointment_id=str(appt.id))
                 total_expired += 1
 
     return total_expired
+
 
 
 def _run_waitlist_processing() -> None:

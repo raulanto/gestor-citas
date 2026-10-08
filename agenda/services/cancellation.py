@@ -15,8 +15,10 @@ from agenda.exceptions import (
     InvalidStateTransition,
     RescheduleLimitReached,
 )
+from agenda.logging import log_event
 from agenda.models import Appointment
 from agenda.services.booking import BookingResult, create_appointment_in_lock
+
 from agenda.services.locks import day_advisory_lock, day_advisory_locks
 from agenda.services.transitions import transition
 from agenda.services.waitlist import process_waitlist
@@ -93,7 +95,9 @@ def cancel_appointment(
         if was_confirmed:
             process_waitlist(appointment.date, now=now)
 
+        log_event("appointment_cancelled", appointment_id=str(appointment.id))
         return appointment
+
 
 
 def reschedule_appointment(
@@ -186,7 +190,13 @@ def reschedule_appointment(
         if was_confirmed:
             process_waitlist(orig_date, now=now)
 
+        log_event(
+            "appointment_rescheduled",
+            old_appointment_id=str(appointment.id),
+            new_appointment_id=str(new_result.appointment.id),
+        )
         return new_result
+
 
 
 def cancel_appointments_for_day(

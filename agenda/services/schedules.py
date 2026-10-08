@@ -15,12 +15,14 @@ from agenda.exceptions import (
     ScheduleChangeNeedsConfirmation,
     WorkerNotFound,
 )
+from agenda.logging import log_event
 from agenda.models import (
     Appointment,
     ScheduleException,
     Worker,
     WorkSchedule,
 )
+
 from agenda.selectors.schedules import get_day_config_summary
 from agenda.selectors.workers import list_available_workers_on, resolve_worker_shift
 from agenda.services.assignment import pick_worker
@@ -263,7 +265,7 @@ def revalidate_worker(
             if summary.is_over_quota:
                 over_quota_dates.append(target_date.isoformat())
 
-    return RevalidationResult(
+    result = RevalidationResult(
         displaced=displaced_list,
         reassigned=reassigned_count,
         waitlisted=waitlisted_count,
@@ -271,6 +273,15 @@ def revalidate_worker(
         promoted_from_waitlist=promoted_count,
         over_quota=over_quota_dates,
     )
+    log_event(
+        "schedule_changed",
+        worker_id=worker_id,
+        reassigned=result.reassigned,
+        waitlisted=result.waitlisted,
+        unserviceable=result.unserviceable,
+    )
+    return result
+
 
 
 def revalidate_all(
