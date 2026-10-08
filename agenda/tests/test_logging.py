@@ -17,7 +17,10 @@ from config.logging import PIIRedactionFilter, redact_text
 
 
 def test_pii_redaction_from_string():
-    """Verify regex redactor catches phone numbers, emails, tokens, and JWTs but preserves UUIDs and dates."""
+    """Verify regex redactor catches phone numbers, emails, tokens, and JWTs.
+
+    Preserves UUIDs and dates.
+    """
     raw_text = (
         "User with email test.user+tag@domain.co.uk and phone +52 993 123 4567 "
         "or 9931234567 or 993-123-4567 contacted staff with token "
@@ -71,8 +74,7 @@ def test_pii_redaction_filter_record():
 
     assert record.args == ("[REDACTED_EMAIL]", "[REDACTED_PHONE]")
     assert (
-        record.getMessage()
-        == "Failed login for email [REDACTED_EMAIL] and phone [REDACTED_PHONE]"
+        record.getMessage() == "Failed login for email [REDACTED_EMAIL] and phone [REDACTED_PHONE]"
     )
     assert record.phone == "[REDACTED]"
     assert record.email == "[REDACTED]"
@@ -100,7 +102,10 @@ def test_log_event_forbids_pii_keys():
 
 
 def test_request_id_middleware():
-    """RequestIDMiddleware propagates incoming X-Request-ID or generates a valid UUID, replacing invalid ones."""
+    """RequestIDMiddleware propagates incoming X-Request-ID or generates a valid UUID.
+
+    Replaces invalid ones.
+    """
     from django.http import HttpResponse
 
     rf = RequestFactory()
@@ -234,4 +239,3 @@ def test_redaction_during_booking_and_unhandled_500(caplog, monkeypatch):
         message_str = record.getMessage()
         assert secret_phone not in message_str
         assert secret_email not in message_str
-

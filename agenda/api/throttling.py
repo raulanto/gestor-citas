@@ -28,7 +28,6 @@ class ConfigurableThrottle(SimpleRateThrottle):
         return super().allow_request(request, view)
 
 
-
 class AvailabilityRateThrottle(ConfigurableThrottle):
     """Rate throttle for checking day availability (by IP)."""
 

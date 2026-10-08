@@ -39,4 +39,3 @@ class Requester(models.Model):
                 raise ValidationError(
                     "Debe proporcionar al menos un teléfono o un correo electrónico."
                 )
-

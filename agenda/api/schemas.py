@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import serializers
 
 
@@ -43,7 +44,6 @@ class ApiErrorCode(StrEnum):
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
 
-
 class ErrorResponseSerializer(serializers.Serializer):
     """Standardized error response payload."""
 
@@ -73,9 +73,6 @@ class HealthReadyResponseSerializer(serializers.Serializer):
     )
 
 
-from drf_spectacular.extensions import OpenApiAuthenticationExtension
-
-
 class CustomJWTScheme(OpenApiAuthenticationExtension):
     target_class = "agenda.api.auth.authentication.CustomJWTAuthentication"
     name = "BearerAuth"
@@ -86,4 +83,3 @@ class CustomJWTScheme(OpenApiAuthenticationExtension):
             "scheme": "bearer",
             "bearerFormat": "JWT",
         }
-

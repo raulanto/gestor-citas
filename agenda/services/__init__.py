@@ -64,7 +64,6 @@ __all__ = [
     "acquire_day_advisory_lock",
     "add_exception",
     "anonymize_requesters",
-
     "book_appointment",
     "cancel_appointment",
     "cancel_appointments_for_day",

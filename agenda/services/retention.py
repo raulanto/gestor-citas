@@ -39,14 +39,14 @@ def anonymize_requesters(
     threshold = current_time - datetime.timedelta(days=older_than_days)
 
     # Requesters with active appointments cannot be anonymized
-    active_requester_ids = Appointment.objects.filter(
-        status__in=ACTIVE_STATUSES
-    ).values_list("requester_id", flat=True)
+    active_requester_ids = Appointment.objects.filter(status__in=ACTIVE_STATUSES).values_list(
+        "requester_id", flat=True
+    )
 
     # Requesters with recent appointments (end_at >= threshold) cannot be anonymized
-    recent_requester_ids = Appointment.objects.filter(
-        end_at__gte=threshold
-    ).values_list("requester_id", flat=True)
+    recent_requester_ids = Appointment.objects.filter(end_at__gte=threshold).values_list(
+        "requester_id", flat=True
+    )
 
     # Candidate query
     candidates = (

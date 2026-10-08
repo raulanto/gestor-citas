@@ -24,7 +24,6 @@ PUBLIC_ENDPOINTS_WHITELIST = frozenset(
 )
 
 
-
 class IsStaff(BasePermission):
     """Allows access only to authenticated staff users."""
 

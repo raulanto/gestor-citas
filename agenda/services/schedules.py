@@ -282,7 +282,6 @@ def revalidate_worker(
     return result
 
 
-
 def revalidate_all(
     now: datetime.datetime | None = None,
     from_date: datetime.date | None = None,

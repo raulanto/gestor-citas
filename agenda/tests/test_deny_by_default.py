@@ -22,7 +22,6 @@ PUBLIC_WHITELIST = {
 }
 
 
-
 def _extract_routes(resolver: URLResolver, prefix: str = "") -> Iterator[tuple[str, object]]:
     for pattern in resolver.url_patterns:
         if isinstance(pattern, URLResolver):

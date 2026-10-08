@@ -150,7 +150,9 @@ class TokenRefreshCustomView(APIView):
 
     @extend_schema(
         summary="Refrescar token de acceso",
-        description="Genera un nuevo token de acceso a partir de un token de refresco válido con rotación.",
+        description=(
+            "Genera un nuevo token de acceso a partir de un token de refresco válido con rotación."
+        ),
         request=TokenRefreshSerializer,
         responses={
             200: TokenRefreshResponseSerializer,
@@ -247,7 +249,9 @@ class MeView(APIView):
 
     @extend_schema(
         summary="Perfil del usuario autenticado",
-        description="Retorna el identificador, nombre de usuario, rol efectivo y worker_id vinculado.",
+        description=(
+            "Retorna el identificador, nombre de usuario, rol efectivo y worker_id vinculado."
+        ),
         responses={
             200: MeResponseSerializer,
             401: ErrorResponseSerializer,

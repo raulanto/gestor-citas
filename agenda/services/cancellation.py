@@ -98,7 +98,6 @@ def cancel_appointment(
         return appointment
 
 
-
 def reschedule_appointment(
     appointment: Appointment,
     new_start_at: datetime.datetime,
@@ -195,7 +194,6 @@ def reschedule_appointment(
             new_appointment_id=str(new_result.appointment.id),
         )
         return new_result
-
 
 
 def cancel_appointments_for_day(

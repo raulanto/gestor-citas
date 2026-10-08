@@ -46,4 +46,3 @@ class MeResponseSerializer(serializers.Serializer):
     username = serializers.CharField()
     role = serializers.CharField()
     worker_id = serializers.IntegerField(allow_null=True)
-

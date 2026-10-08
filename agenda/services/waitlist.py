@@ -191,7 +191,6 @@ def expire_waitlist(now: datetime.datetime | None = None) -> int:
     return total_expired
 
 
-
 def _run_waitlist_processing() -> None:
     from agenda.tasks import process_waitlist_all_task
 

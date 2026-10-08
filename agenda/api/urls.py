@@ -95,4 +95,3 @@ if getattr(settings, "API_DOCS_ENABLED", True):
             name="swagger_ui",
         ),
     ]
-

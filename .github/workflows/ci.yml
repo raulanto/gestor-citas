@@ -58,3 +58,8 @@ jobs:
 
       - name: Run Pytest
         run: uv run pytest
+
+      - name: Validate OpenAPI Schema Contract
+        run: |
+          uv run python manage.py spectacular --file openapi.yaml --validate --fail-on-warn
+          git diff --exit-code openapi.yaml

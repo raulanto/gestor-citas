@@ -327,7 +327,6 @@ class RequesterAdmin(admin.ModelAdmin):
         return False
 
 
-
 @admin.register(DayConfig)
 class DayConfigAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
     """Admin interface for managing day capacity and open/closed configurations."""

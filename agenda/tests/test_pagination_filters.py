@@ -277,4 +277,3 @@ def test_appointment_list_constant_queries(
         resp = api_client.get(f"/api/v1/appointments/?date={target_date}&limit=10")
         assert resp.status_code == status.HTTP_200_OK
         assert len(resp.json()["results"]) == 10
-

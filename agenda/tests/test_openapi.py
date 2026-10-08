@@ -117,4 +117,3 @@ def test_api_docs_conditional_routes(api_client: APIClient):
             )
     finally:
         reload_urls()
-

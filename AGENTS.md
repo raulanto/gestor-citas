@@ -113,6 +113,27 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 | `POST /api/v1/auth/logout/` | ✅ | ✅ | ✅ | ✅ |
 | `GET /api/v1/auth/me/` | ❌ (401) | ❌ (401) | ✅ | ✅ |
 
+## Operación de la API, Observabilidad y Contratos (Fase 7b)
+
+- **Logging estructurado y privacidad:**
+  - El middleware registra cada petición en una sola línea JSON con `request_id`, `user_id` y `role`.
+  - Los eventos de dominio se registran **únicamente** con `log_event(name, **ids)` de `agenda/logging.py`, pasando identificadores y nunca datos personales (`phone`, `email`, `full_name`, `manage_token`, `password`).
+  - `PIIRedactionFilter` actúa como red de seguridad en todos los handlers de logging.
+  - Las claves de caché de rate limit por contacto **siempre** usan el hash SHA-256 del contacto normalizado.
+- **Throttling granular:**
+  - Toda vista API debe declarar explícitamente sus clases de throttle (`throttle_classes = [AvailabilityRateThrottle, ...]`) heredando de `ConfigurableThrottle`.
+  - Respuestas 429 estandarizadas a `{"code": "THROTTLED", "detail": "..."}` con encabezado `Retry-After`.
+- **OpenAPI y Documentación:**
+  - Toda vista debe estar anotada con `@extend_schema` detallando parámetros, request body, responses y códigos de error aplicables.
+  - Cualquier código de error devuelto por la API debe registrarse en el enum `ApiErrorCode` (`agenda/api/schemas.py`).
+  - Cada cambio en vistas/serializers debe ir acompañado de la regeneración de `openapi.yaml` con `uv run python manage.py spectacular --file openapi.yaml --validate --fail-on-warn` y pasar `git diff --exit-code openapi.yaml`.
+- **Paginación y Filtros:**
+  - Paginación estándar con `StandardLimitOffsetPagination` (límite default 25, máximo 100).
+  - Filtros declarados mediante `django-filter` con validación estricta (ej. rango máximo de 92 días en `AppointmentFilter` y lista blanca de `ordering`).
+- **Salud y Retención:**
+  - `GET /health/ready/` sondea DB y Redis sin filtrar detalles internos en caso de falla (503).
+  - Retención y anonimización mediante `anonymize_requesters()` en `agenda/services/retention.py` sin eliminar registros de citas ni eventos de auditoría.
+
 ## Fechas y horas
 
 - `USE_TZ = True`, zona `America/Mexico_City`.
@@ -147,8 +168,8 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 - No usar `pip install` ni `requirements.txt`; no editar `uv.lock` a mano.
 - No hardcodear límites: viven en `settings` o en `DayConfig`.
 - No borrar citas físicamente; usar estados.
-- No exponer datos personales del solicitante ni tokens en logs.
-- No modificar el esquema de la API pública sin actualizar `README.md`.
+- No exponer datos personales del solicitante ni tokens en logs ni en claves de caché.
+- No modificar el esquema de la API pública sin actualizar `README.md` y `openapi.yaml`.
 
 ## Flujo de trabajo para el agente
 
@@ -156,13 +177,15 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 2. Escribir/ajustar tests primero cuando se trate de una regla de negocio.
 3. Implementar en `services/` (no en vistas).
 4. Generar migración si cambian modelos y revisarla.
-5. Ejecutar `uv run pytest` y `uv run ruff check .`.
-6. Actualizar `README.md` si cambian reglas, endpoints o variables de configuración.
+5. Ejecutar `uv run pytest`, `uv run ruff check .` y `uv run ruff format --check .`.
+6. Regenerar el esquema OpenAPI si cambia la API: `uv run python manage.py spectacular --file openapi.yaml --validate --fail-on-warn`.
+7. Actualizar `README.md` si cambian reglas, endpoints o variables de configuración.
 
 ## Definición de terminado
 
 - [ ] Tests nuevos y existentes pasan
 - [ ] `ruff check` y `ruff format --check` limpios
 - [ ] Migraciones incluidas y revisadas
+- [ ] Contrato `openapi.yaml` sincronizado y validado
 - [ ] Reglas de dominio respetadas (sección anterior)
 - [ ] Documentación actualizada

@@ -26,4 +26,3 @@ CACHES = {
 }
 
 THROTTLING_ENABLED = False
-

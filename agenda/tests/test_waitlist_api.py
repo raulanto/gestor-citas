@@ -183,7 +183,6 @@ def test_waitlist_api_no_n_plus_one_queries(
         assert len(resp.json()["results"]) == 5
 
 
-
 @pytest.mark.django_db
 def test_appointment_detail_waitlist_position(api_client, tz):
     """GET /api/v1/appointments/{id}/ includes waitlist_position (int or null)."""

@@ -254,7 +254,6 @@ def create_appointment_in_lock(
     )
 
 
-
 def book_appointment(
     *,
     requester: Requester,

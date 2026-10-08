@@ -82,9 +82,7 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
                 "code": "INVALID_PARAMETERS",
                 "detail": detail_msg,
                 "errors": (
-                    exc.detail
-                    if isinstance(exc.detail, (dict, list))
-                    else {"detail": exc.detail}
+                    exc.detail if isinstance(exc.detail, (dict, list)) else {"detail": exc.detail}
                 ),
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -100,4 +98,3 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
         )
 
     return exception_handler(exc, context)
-

@@ -400,7 +400,10 @@ agenda/
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| GET | `/api/v1/health/` | Público | Verificación de estado del servicio |
+| GET | `/api/v1/health/ready/` | Público | Verificación de dependencias (DB y Caché) |
+| GET | `/api/v1/schema/` | Público (si docs activos) | Contrato OpenAPI YAML/JSON |
+| GET | `/api/v1/docs/` | Público (si docs activos) | Documentación interactiva Swagger UI |
+| GET | `/api/v1/appointments/` | Staff | Listado paginado de citas con filtros y ordenamiento |
 | GET | `/api/v1/availability/?date=&service=` | Público | Horarios libres y cupo restante |
 | POST | `/api/v1/appointments/` | Público | Solicitar cita (devuelve `manage_token` una sola vez) |
 | GET | `/api/v1/appointments/{id}/` | Solicitante (`X-Manage-Token`) / Trabajador (asignada) / Staff | Detalle de cita (datos del solicitante según rol) |
@@ -409,7 +412,6 @@ agenda/
 | POST | `/api/v1/appointments/{id}/complete/` | Trabajador (asignada) / Staff | Marcar cita como completada |
 | POST | `/api/v1/appointments/{id}/no-show/` | Trabajador (asignada) / Staff | Marcar cita como inasistencia |
 | POST | `/api/v1/appointments/{id}/token/` | Staff | Rota el token de gestión y lo entrega una sola vez |
-| GET | `/api/v1/appointments/?unserviceable=true` | Staff | Listado de citas en espera inatendibles |
 | GET | `/api/v1/waitlist/?date=YYYY-MM-DD` | Staff | Lista FIFO de citas en espera con posición |
 | GET | `/api/v1/me/agenda/?date=YYYY-MM-DD` | Trabajador (propia) / Staff (`worker_id` req) | Citas confirmadas de un trabajador en una fecha |
 | GET | `/api/v1/workers/{id}/schedule/` | Staff / Trabajador propio | Horario semanal y excepciones futuras |
@@ -427,43 +429,82 @@ agenda/
 
 ---
 
-### Solicitar Cita (`POST /api/v1/appointments/`)
+## Límites de uso (Rate Limiting)
 
-**Payload de solicitud:**
+La API aplica límites de tasa mediante throttling de DRF utilizando la caché compartida (Redis en producción).
 
-```json
-{
-  "requester": {
-    "full_name": "Ana Pérez",
-    "phone": "+52 993 123 4567",
-    "email": "ana.perez@example.com"
-  },
-  "service": 1,
-  "start_at": "2026-10-12T09:00:00-06:00"
-}
-```
+| Alcance | Tasa por defecto | Identificador / Clave | Endpoints afectados |
+|---|---|---|---|
+| `availability` | `60/min` | IP del cliente | `GET /api/v1/availability/` |
+| `booking` | `10/min`, `5/hour` | IP del cliente | `POST /api/v1/appointments/` |
+| `booking_contact` | `3/hour` | Hash SHA-256 del contacto normalizado | `POST /api/v1/appointments/` |
+| `manage` | `20/min` | IP del cliente | Acceso con token de gestión (`GET/POST /appointments/{id}/...`) |
+| `auth` | `10/min` | IP del cliente | `POST /auth/token/`, `/refresh/`, `/logout/` |
+| `user` | `120/min` | ID del usuario autenticado | Endpoints autenticados de Staff y Trabajadores |
 
-**Respuesta confirmada (`201 Created`):**
+- Los endpoints de salud (`/health/`, `/health/ready/`) no tienen límite de tasa en la aplicación.
+- Las claves de caché **nunca** almacenan datos personales en claro (utilizan hash SHA-256 del contacto).
+- Al exceder un límite, la API responde `429 Too Many Requests` con el formato estándar `{"code": "THROTTLED", "detail": "..."}` y el encabezado `Retry-After`.
 
-```json
-{
-  "id": "7fa82645-17a4-44cf-a6e5-4f402f04df97",
-  "status": "CONFIRMED",
-  "manage_token": "a8f3B9_...",
-  "service": {
-    "id": 1,
-    "name": "Consulta General",
-    "duration_minutes": 30
-  },
-  "date": "2026-10-12",
-  "start_at": "2026-10-12T09:00:00-06:00",
-  "end_at": "2026-10-12T09:30:00-06:00",
-  "requester": {
-    "id": 1,
-    "full_name": "Ana Pérez"
-  },
-  "worker_name": "Dra. Ana López"
-}
+---
+
+## Logging estructurado y privacidad
+
+- **Formato estándar JSON**: Cada solicitud HTTP genera una única línea JSON en `stdout` (`ts`, `level`, `request_id`, `method`, `path`, `status`, `duration_ms`, `user_id`, `role`).
+- **Trazabilidad (`X-Request-ID`)**: Genera o propaga identificadores de solicitud seguros a través de middleware y `contextvars`.
+- **Filtro de redacción de PII (`PIIRedactionFilter`)**: Enmascara teléfonos, correos electrónicos, tokens JWT, encabezados de autorización y datos confidenciales en mensajes de log, argumentos y diccionarios de contexto.
+- **Eventos de dominio (`log_event`)**: Registro explícito de eventos operativos (`appointment_booked`, `appointment_cancelled`, `waitlist_assigned`, `requesters_anonymized`, etc.) únicamente con identificadores numéricos o UUIDs.
+
+---
+
+## Paginación y filtros
+
+Los listados soportan paginación mediante `limit` y `offset` (por defecto 25 elementos, máximo 100).
+
+- **`GET /api/v1/appointments/` (Staff):**
+  - `date`: Fecha exacta (`YYYY-MM-DD`).
+  - `date_from` y `date_to`: Rango de fechas (máximo 92 días de diferencia).
+  - `status`: Uno o múltiples estados (`CONFIRMED`, `WAITLISTED`, `CANCELLED`, etc.).
+  - `worker`: ID del trabajador asignado.
+  - `service`: ID del servicio.
+  - `unserviceable`: Booleano (`true` o `false`) para listar citas en espera inatendibles.
+  - `ordering`: Ordenamiento por `start_at`, `-start_at`, `created_at`, `-created_at`.
+
+- **`GET /api/v1/waitlist/?date=YYYY-MM-DD` (Staff):**
+  - Lista de espera paginada preservando la posición **absoluta** del solicitante en la jornada (`position`).
+
+---
+
+## OpenAPI y Documentación interactiva
+
+- **Contrato OpenAPI**: Especificación versionada y validada en [`openapi.yaml`](file:///home/raulantodev/Projects/microapps/gestor-citas/openapi.yaml).
+- **Regeneración y validación**:
+  ```bash
+  uv run python manage.py spectacular --file openapi.yaml --validate --fail-on-warn
+  ```
+- **Explorador Swagger UI**: Disponible en `/api/v1/docs/` y esquema crudo en `/api/v1/schema/` cuando `API_DOCS_ENABLED=True`.
+
+---
+
+## Salud (`health` vs `ready`)
+
+- `GET /api/v1/health/`: Sondeo de **vivacidad (liveness)**. Confirma que el proceso web está respondiendo (200 OK).
+- `GET /api/v1/health/ready/`: Sondeo de **disponibilidad (readiness)**. Verifica la conectividad con la base de datos y la caché Redis. Si algún servicio falla, responde `503 Service Unavailable` con `{"status": "unavailable", "failing": ["database" | "cache"]}` sin filtrar datos internos.
+
+---
+
+## Retención y anonimización de datos
+
+Política de privacidad y anonimización conforme a normativas de retención de datos personales:
+- Se conservan las citas y métricas históricas, vaciando el nombre, teléfono y correo del solicitante y registrando `anonymized_at`.
+- Solo se anonimizan solicitantes cuyas citas sean terminales (`CANCELLED`, `COMPLETED`, `NO_SHOW`, `EXPIRED`, `RESCHEDULED`) y finalizadas hace más de `PII_RETENTION_DAYS` (default 730 días / 2 años), o sin citas y creados hace más de dicho plazo.
+
+```bash
+# Simular anonimización (dry-run)
+uv run python manage.py anonymize_requesters --older-than-days 730 --dry-run
+
+# Ejecutar anonimización
+uv run python manage.py anonymize_requesters --older-than-days 730
 ```
 
 ---
@@ -484,7 +525,22 @@ agenda/
 | `JWT_REFRESH_DAYS` | 7 | Duración del token de refresco JWT (días) |
 | `LOGIN_MAX_FAILED_ATTEMPTS` | 5 | Intentos fallidos antes del bloqueo temporal |
 | `LOGIN_LOCKOUT_MINUTES` | 15 | Duración del bloqueo tras exceder intentos fallidos (minutos) |
-| `REDIS_URL` | `redis://localhost:6379/1` | URL de Redis para la caché de bloqueo y tokens |
+| `THROTTLING_ENABLED` | `True` | Habilitar limitación de tasa de solicitudes |
+| `THROTTLE_AVAILABILITY` | `60/min` | Límite para consulta de disponibilidad |
+| `THROTTLE_BOOKING_MINUTE` | `10/min` | Límite por minuto para reserva de citas por IP |
+| `THROTTLE_BOOKING_HOUR` | `5/hour` | Límite por hora para reserva de citas por IP |
+| `THROTTLE_BOOKING_CONTACT` | `3/hour` | Límite por hora para reserva de citas por contacto |
+| `THROTTLE_MANAGE` | `20/min` | Límite para operaciones con token de gestión |
+| `THROTTLE_AUTH` | `10/min` | Límite para endpoints de autenticación por IP |
+| `THROTTLE_USER` | `120/min` | Límite para usuarios autenticados por ID |
+| `TRUSTED_PROXIES_COUNT` | 0 | Número de proxys de confianza para IP real |
+| `LOG_LEVEL` | `INFO` | Nivel de logging general |
+| `LOG_SKIP_PATHS` | `health` | Rutas omitidas del log de solicitudes HTTP |
+| `API_DOCS_ENABLED` | `True` (dev) / `False` (prod) | Habilitar rutas de OpenAPI y Swagger UI |
+| `PAGINATION_DEFAULT_LIMIT` | 25 | Tamaño de página por defecto |
+| `PAGINATION_MAX_LIMIT` | 100 | Límite máximo de elementos por página |
+| `PII_RETENTION_DAYS` | 730 | Días de retención de PII antes de anonimización |
+| `REDIS_URL` | `redis://localhost:6379/1` | URL de Redis para la caché de bloqueo, throttling y tokens |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | URL del broker Redis para tareas Celery |
 | `CELERY_RESULT_BACKEND` | `redis://localhost:6379/0` | Backend de resultados para Celery |
 
@@ -506,7 +562,7 @@ uv run celery -A config worker -l info   # procesador de tareas asíncronas
 uv run celery -A config beat -l info     # programador de tareas periódicas
 ```
 
-### Comandos de gestión de lista de espera y revalidación
+### Comandos de gestión de lista de espera, revalidación y retención
 
 ```bash
 uv run python manage.py process_waitlist                 # procesa todas las fechas activas
@@ -514,6 +570,7 @@ uv run python manage.py process_waitlist --date 2026-10-12 # procesa una fecha e
 uv run python manage.py expire_waitlist                  # expira citas en espera vencidas
 uv run python manage.py revalidate_assignments           # revalida citas de todos los trabajadores
 uv run python manage.py revalidate_assignments --worker 1# revalida citas de un trabajador específico
+uv run python manage.py anonymize_requesters --dry-run   # prueba de anonimización de solicitantes
 ```
 
 ### Tests y calidad
@@ -521,6 +578,7 @@ uv run python manage.py revalidate_assignments --worker 1# revalida citas de un 
 ```bash
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
+uv run python manage.py spectacular --file openapi.yaml --validate --fail-on-warn
 ```
 
 ---
@@ -530,5 +588,5 @@ uv run ruff check . && uv run ruff format --check .
 La Fase 7 completa la operacionalización de la microapp dividida en tres entregas:
 
 - **Fase 7a (Completada):** Autenticación JWT, control de acceso basado en roles (`STAFF`, `WORKER`, `NONE`, Solicitante con token), token de gestión seguro (`manage_token`), protección contra ataques de fuerza bruta en login y privacidad de datos por rol.
-- **Fase 7b (Próxima):** Operación de la API (rate limiting granular con DRF throttling, logging estructurado JSON, paginación y documentación OpenAPI / Swagger).
-- **Fase 7c (Final):** Despliegue en producción (Docker, orquestación, healthchecks avanzados y respaldos automatizados).
+- **Fase 7b (Completada):** Operación de la API (rate limiting con DRF throttling y hashes, logging estructurado JSON sin PII, paginación y filtros validados con `django-filter`, especificación OpenAPI versionada con `drf-spectacular`, probe de salud `ready` y retención de datos con anonimización).
+- **Fase 7c (Próxima):** Despliegue en producción (Docker, orquestación, configuración segura de producción y respaldos automatizados).

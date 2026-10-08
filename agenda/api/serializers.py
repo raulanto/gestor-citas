@@ -552,7 +552,4 @@ class ScheduleChangeResponseSerializer(serializers.Serializer):
     applied = serializers.BooleanField(
         help_text="Indica si los cambios fueron aplicados en la base de datos."
     )
-    impact = serializers.DictField(
-        help_text="Desglose del impacto sobre citas existentes."
-    )
-
+    impact = serializers.DictField(help_text="Desglose del impacto sobre citas existentes.")

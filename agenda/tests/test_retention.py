@@ -50,9 +50,7 @@ def test_anonymize_requesters_conditions(tz):
     service = ServiceFactory(duration_minutes=30)
 
     # 1. Qualifying Requester A: old completed appointment
-    req_a = RequesterFactory(
-        full_name="Old User", phone="+52 993 111 2233", email="old@domain.com"
-    )
+    req_a = RequesterFactory(full_name="Old User", phone="+52 993 111 2233", email="old@domain.com")
     old_end = cutoff_date - datetime.timedelta(days=10)
     AppointmentFactory(
         requester=req_a,

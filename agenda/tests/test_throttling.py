@@ -45,9 +45,7 @@ def test_availability_throttling_and_429_format(api_client: APIClient):
         REST_FRAMEWORK={**settings.REST_FRAMEWORK, "DEFAULT_THROTTLE_RATES": rates},
     ):
         for _ in range(3):
-            resp = api_client.get(
-                f"/api/v1/availability/?service={service.id}&date=2026-10-15"
-            )
+            resp = api_client.get(f"/api/v1/availability/?service={service.id}&date=2026-10-15")
             assert resp.status_code == status.HTTP_200_OK
 
         # 4th request must be throttled

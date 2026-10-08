@@ -94,7 +94,10 @@ class AvailabilityView(APIView):
 
     @extend_schema(
         summary="Consultar disponibilidad y cupos de un día",
-        description="Calcula los intervalos horarios libres y el cupo restante para un servicio en una fecha.",
+        description=(
+            "Calcula los intervalos horarios libres y el cupo restante "
+            "para un servicio en una fecha."
+        ),
         parameters=[AvailabilityQuerySerializer],
         responses={
             200: DayAvailabilitySerializer,
@@ -264,7 +267,8 @@ class AppointmentsView(APIView):
         summary="Solicitar nueva cita (Público)",
         description=(
             "Reserva una cita con asignación óptima de personal o colocación en lista de espera. "
-            "Devuelve un 'manage_token' de gestión única vez para que el solicitante administre su cita."
+            "Devuelve un 'manage_token' de gestión única vez para que el solicitante "
+            "administre su cita."
         ),
         request=AppointmentCreateSerializer,
         responses={
@@ -561,7 +565,9 @@ class AppointmentCompleteView(APIView):
 
     @extend_schema(
         summary="Marcar cita como completada",
-        description="Transiciona una cita CONFIRMED a COMPLETADA (solo trabajador asignado o staff).",
+        description=(
+            "Transiciona una cita CONFIRMED a COMPLETADA (solo trabajador asignado o staff)."
+        ),
         request=None,
         responses={
             200: WorkerAppointmentDetailSerializer,
@@ -633,7 +639,10 @@ class AppointmentRotateTokenView(APIView):
 
     @extend_schema(
         summary="Rotar token de gestión de cita (Staff)",
-        description="Genera un nuevo token de gestión para la cita e invalida el anterior registrando auditoría.",
+        description=(
+            "Genera un nuevo token de gestión para la cita e invalida el anterior "
+            "registrando auditoría."
+        ),
         request=None,
         responses={
             200: RotateTokenResponseSerializer,
@@ -661,7 +670,10 @@ class WaitlistView(APIView):
 
     @extend_schema(
         summary="Listar lista de espera FIFO del día (Staff)",
-        description="Consulta las citas en estado WAITLISTED de una fecha en orden FIFO con posición absoluta.",
+        description=(
+            "Consulta las citas en estado WAITLISTED de una fecha "
+            "en orden FIFO con posición absoluta."
+        ),
         parameters=[WaitlistQuerySerializer],
         responses={
             200: WaitlistEntrySerializer(many=True),
@@ -701,7 +713,10 @@ class WorkerAgendaView(APIView):
 
     @extend_schema(
         summary="Consultar agenda del trabajador",
-        description="Consulta las citas CONFIRMED del día con datos de contacto del solicitante para el trabajador.",
+        description=(
+            "Consulta las citas CONFIRMED del día con datos de contacto del solicitante "
+            "para el trabajador."
+        ),
         parameters=[WorkerAgendaQuerySerializer],
         responses={
             200: WorkerAgendaAppointmentSerializer(many=True),
@@ -778,7 +793,10 @@ class WorkerScheduleView(APIView):
 
     @extend_schema(
         summary="Consultar horario semanal de trabajador",
-        description="Consulta los turnos y descansos semanales de un trabajador junto a sus excepciones futuras.",
+        description=(
+            "Consulta los turnos y descansos semanales de un trabajador "
+            "junto a sus excepciones futuras."
+        ),
         responses={
             200: WorkerScheduleDetailSerializer,
             401: ErrorResponseSerializer,
@@ -799,7 +817,10 @@ class WorkerScheduleView(APIView):
 
     @extend_schema(
         summary="Actualizar horario semanal de trabajador",
-        description="Reemplaza el horario semanal revalidando citas futuras y admitiendo dry_run y confirmación.",
+        description=(
+            "Reemplaza el horario semanal revalidando citas futuras y "
+            "admitiendo dry_run y confirmación."
+        ),
         request=WorkScheduleSetSerializer,
         responses={
             200: ScheduleChangeResponseSerializer,
@@ -906,7 +927,10 @@ class WorkerExceptionDetailView(APIView):
 
     @extend_schema(
         summary="Eliminar excepción de horario",
-        description="Elimina una excepción de horario previa revalidando la agenda y reasignando citas si aplica.",
+        description=(
+            "Elimina una excepción de horario previa revalidando la agenda "
+            "y reasignando citas si aplica."
+        ),
         responses={
             200: ScheduleChangeResponseSerializer,
             401: ErrorResponseSerializer,
@@ -1108,7 +1132,9 @@ class DayConfigWeekdayView(APIView):
 
     @extend_schema(
         summary="Consultar configuración por defecto de día de la semana (Staff)",
-        description="Obtiene la configuración semanal por defecto para un día (0=Lunes, 6=Domingo).",
+        description=(
+            "Obtiene la configuración semanal por defecto para un día (0=Lunes, 6=Domingo)."
+        ),
         responses={
             200: DayConfigDetailSerializer,
             400: ErrorResponseSerializer,
@@ -1143,7 +1169,10 @@ class DayConfigWeekdayView(APIView):
 
     @extend_schema(
         summary="Actualizar configuración por defecto de día de la semana (Staff)",
-        description="Actualiza el cupo o estado de apertura semanal por defecto para un día (0=Lunes, 6=Domingo).",
+        description=(
+            "Actualiza el cupo o estado de apertura semanal por defecto "
+            "para un día (0=Lunes, 6=Domingo)."
+        ),
         request=DayConfigUpdateSerializer,
         responses={
             200: DayConfigDetailSerializer,
