@@ -37,6 +37,7 @@ from agenda.services.capacity import (
     work_segments,
 )
 from agenda.services.locks import day_advisory_lock
+from agenda.services.manage_token import issue_manage_token
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class BookingResult:
 
     appointment: Appointment
     outcome: str  # AppointmentStatus.CONFIRMED or AppointmentStatus.WAITLISTED
+    manage_token: str | None = None
 
 
 def create_appointment_in_lock(
@@ -192,6 +194,7 @@ def create_appointment_in_lock(
             rescheduled_from=rescheduled_from,
             reschedule_count=reschedule_count,
         )
+        token = issue_manage_token(appointment)
         AppointmentEvent.objects.create(
             appointment=appointment,
             from_status="",
@@ -203,6 +206,7 @@ def create_appointment_in_lock(
         return BookingResult(
             appointment=appointment,
             outcome=AppointmentStatus.CONFIRMED,
+            manage_token=token,
         )
 
     # 8. No free worker -> Check allow_waitlist or WaitlistFull
@@ -229,6 +233,7 @@ def create_appointment_in_lock(
         rescheduled_from=rescheduled_from,
         reschedule_count=reschedule_count,
     )
+    token = issue_manage_token(appointment)
     AppointmentEvent.objects.create(
         appointment=appointment,
         from_status="",
@@ -240,6 +245,7 @@ def create_appointment_in_lock(
     return BookingResult(
         appointment=appointment,
         outcome=AppointmentStatus.WAITLISTED,
+        manage_token=token,
     )
 
 

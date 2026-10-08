@@ -19,6 +19,8 @@ ALLOWED_HOSTS = config(
     cast=Csv(),
 )
 
+from datetime import timedelta
+
 # Application definition
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -29,6 +31,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "rest_framework",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "agenda.apps.AgendaConfig",
 ]
 
@@ -111,11 +115,45 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Django REST Framework
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "agenda.api.exception_handler.custom_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+}
+
+# Authentication and JWT Configuration
+JWT_ACCESS_MINUTES = config("JWT_ACCESS_MINUTES", default=15, cast=int)
+JWT_REFRESH_DAYS = config("JWT_REFRESH_DAYS", default=7, cast=int)
+LOGIN_MAX_FAILED_ATTEMPTS = config("LOGIN_MAX_FAILED_ATTEMPTS", default=5, cast=int)
+LOGIN_LOCKOUT_MINUTES = config("LOGIN_LOCKOUT_MINUTES", default=15, cast=int)
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=JWT_ACCESS_MINUTES),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=JWT_REFRESH_DAYS),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": False,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+}
+
+# Cache Configuration
+REDIS_URL = config("REDIS_URL", default=config("CELERY_BROKER_URL", default="redis://localhost:6379/0"))
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
 }
 
 # Business Rules / Domain Constants

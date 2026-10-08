@@ -56,10 +56,22 @@ def list_appointments_queryset(
         .order_by("-start_at", "-created_at")
     )
 
-    if target_date is not None:
-        qs = qs.filter(date=target_date)
-
     if status_filter:
         qs = qs.filter(status=status_filter)
 
     return qs
+
+
+def list_worker_agenda(worker_id: int, target_date: datetime.date) -> list[Appointment]:
+    """Retrieve confirmed appointments for a worker on a given date ordered by start time."""
+    from agenda.constants import AppointmentStatus
+
+    return list(
+        Appointment.objects.filter(
+            worker_id=worker_id,
+            date=target_date,
+            status=AppointmentStatus.CONFIRMED,
+        )
+        .select_related("requester", "service", "worker")
+        .order_by("start_at", "id")
+    )

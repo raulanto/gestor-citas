@@ -81,6 +81,13 @@ class Appointment(models.Model):
         related_name="rescheduled_children",
         verbose_name="reprogramada desde",
     )
+    manage_token_hash = models.CharField(
+        "hash de token de gestión",
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
 
     created_at = models.DateTimeField("creado el", auto_now_add=True)
     updated_at = models.DateTimeField("actualizado el", auto_now=True)

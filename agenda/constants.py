@@ -70,6 +70,7 @@ class EventNote:
     REASSIGNED_SCHEDULE_CHANGE = "Reasignada por cambio de horario"
     WAITLISTED_SCHEDULE_CHANGE = "Enviada a espera por cambio de horario"
     WORKER_REASSIGNED = "Trabajador reasignado"
+    MANAGE_TOKEN_ROTATED = "Token de gestión rotado"
 
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {

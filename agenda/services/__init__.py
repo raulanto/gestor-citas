@@ -26,6 +26,11 @@ from agenda.services.locks import (
     day_advisory_lock,
     day_advisory_locks,
 )
+from agenda.services.manage_token import (
+    issue_manage_token,
+    rotate_manage_token,
+    verify_manage_token,
+)
 from agenda.services.requesters import get_or_create_requester, normalize_phone
 from agenda.services.schedules import (
     DisplacedAppointmentInfo,
