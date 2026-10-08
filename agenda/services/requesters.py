@@ -36,12 +36,12 @@ def get_or_create_requester(
         raise ValidationError("Debe proporcionar al menos un teléfono o un correo electrónico.")
 
     if clean_phone:
-        existing = Requester.objects.filter(phone=clean_phone).first()
+        existing = Requester.objects.filter(phone=clean_phone, anonymized_at__isnull=True).first()
         if existing is not None:
             return existing
 
     if clean_email:
-        existing = Requester.objects.filter(email=clean_email).first()
+        existing = Requester.objects.filter(email=clean_email, anonymized_at__isnull=True).first()
         if existing is not None:
             return existing
 
@@ -50,3 +50,4 @@ def get_or_create_requester(
         phone=clean_phone,
         email=clean_email,
     )
+

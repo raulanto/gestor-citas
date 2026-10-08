@@ -32,6 +32,7 @@ from agenda.services.manage_token import (
     verify_manage_token,
 )
 from agenda.services.requesters import get_or_create_requester, normalize_phone
+from agenda.services.retention import anonymize_requesters
 from agenda.services.schedules import (
     DisplacedAppointmentInfo,
     RevalidationResult,
@@ -62,6 +63,8 @@ __all__ = [
     "WaitlistResult",
     "acquire_day_advisory_lock",
     "add_exception",
+    "anonymize_requesters",
+
     "book_appointment",
     "cancel_appointment",
     "cancel_appointments_for_day",
