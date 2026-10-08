@@ -108,16 +108,15 @@ def revalidate_worker(
     if worker is None:
         raise WorkerNotFound()
 
-    # Find target dates with future CONFIRMED appointments
-    query = Appointment.objects.filter(
-        worker_id=worker_id,
-        status=AppointmentStatus.CONFIRMED,
-        start_at__gt=now_local,
-    )
     if dates is not None:
-        query = query.filter(date__in=dates)
-
-    target_dates = sorted(set(query.values_list("date", flat=True)))
+        target_dates = sorted(set(dates))
+    else:
+        query = Appointment.objects.filter(
+            worker_id=worker_id,
+            status=AppointmentStatus.CONFIRMED,
+            start_at__gt=now_local,
+        )
+        target_dates = sorted(set(query.values_list("date", flat=True)))
 
     displaced_list: list[DisplacedAppointmentInfo] = []
     reassigned_count = 0
@@ -133,7 +132,7 @@ def revalidate_worker(
                 worker_segments: list[Interval] = []
             else:
                 shift = resolve_worker_shift(worker, target_date)
-                worker_segments = work_segments(shift)
+                worker_segments = work_segments(shift) if shift is not None else []
 
             # Fetch confirmed appointments under lock
             confirmed_appts = list(
