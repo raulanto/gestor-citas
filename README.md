@@ -228,6 +228,20 @@ cupo_efectivo        = min(DayConfig.max_appointments, capacidad_personal)
 - Todo cambio de estado crea obligatoriamente un registro `AppointmentEvent` inmutable (`appointment`, `from_status`, `to_status`, `worker`, `note`, `actor`).
 - Prohibido modificar `status` o `worker` fuera de las funciones en `agenda/services/`.
 
+### 6. Cambios de horario del personal y revalidación
+- **Punto de entrada único:** `revalidate_worker(worker_id)` en `agenda/services/schedules.py` centraliza la revalidación tras modificar horarios semanales, excepciones de fecha o el estado activo de un personal.
+- **Revalidación exclusiva de citas futuras:** Solo se evalúan citas en estado `CONFIRMED` con `start_at > now`. Las citas pasadas o en curso no se modifican.
+- **Prioridad de resolución de citas desplazadas:**
+  1. **Reasignación a otro trabajador libre:** Mediante `reassign_worker()` se busca otro trabajador disponible con menor carga (manteniendo estado `CONFIRMED` y registrando evento `CONFIRMED -> CONFIRMED` con el nuevo trabajador).
+  2. **Paso a lista de espera:** Si no hay trabajador libre, la cita transiciona a `WAITLISTED` (`worker=None`) mediante `transition(..., via_revalidation=True)` conservando su `created_at` original para mantener su prioridad FIFO y saltándose el tope `WAITLIST_MAX_PER_DAY`.
+  3. **Citas inatendibles:** Citas en espera que ya no caben en ningún tramo de ningún trabajador son detectadas con `list_unserviceable_waitlist()` y filtrables en la API (`?unserviceable=true`) para resolución manual por staff.
+- **Sobrecupo:** Si una reducción de horario reduce el cupo efectivo por debajo de las citas activas existentes, no se cancela ninguna cita. El día se marca como `over_quota` y se impiden nuevas reservas (`remaining_quota = 0`).
+- **Confirmación obligatoria y Dry-Run:**
+  - Cambios con impacto sin `confirm=true` → error `409 Conflict` (`SCHEDULE_CHANGE_REQUIRES_CONFIRMATION`) con el desglose de `impact` y reversión total.
+  - Con `dry_run=true` → retorna `200 OK` con `{"applied": false, "impact": {...}}` sin modificar la base de datos.
+  - Cambios sin citas afectadas se aplican de forma inmediata.
+- **Barrido periódico y comando de gestión:** Celery Beat ejecuta periódicamente `waitlist_maintenance_task` en orden: `expire_waitlist` → `revalidate_all` → `process_waitlist_all`. También disponible mediante el comando `revalidate_assignments [--worker ID]`.
+
 ## Estructura del proyecto
 
 ```
@@ -235,12 +249,12 @@ agenda/
 ├── adapters/          # Adaptadores externos (AppointmentBusySlots que implementa BusySlotsPort)
 ├── api/               # Serializers, views delgadas, urls (sin lógica de negocio)
 ├── exceptions.py      # Excepciones de dominio tipadas con código y http_status
-├── management/        # Comandos administrativos (seed_demo, process_waitlist, expire_waitlist)
+├── management/        # Comandos administrativos (seed_demo, process_waitlist, expire_waitlist, revalidate_assignments)
 ├── models/            # Requester, Service, Worker, WorkSchedule, ScheduleException,
 │                      # DayConfig, Appointment, AppointmentEvent
 ├── ports.py           # Protocolo BusySlotsPort y NullBusySlots
-├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment, list_waitlist)
-├── services/          # Casos de uso (booking, waitlist, assignment, capacity, requesters, locks)
+├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment, list_waitlist, schedules)
+├── services/          # Casos de uso (booking, waitlist, assignment, capacity, schedules, cancellation, locks)
 ├── tasks.py           # Tareas Celery (process_waitlist_task, waitlist_maintenance_task)
 ├── admin.py           # Admin de Django (Appointment sólo lectura, WaitlistTriggerMixin)
 ├── tests/             # Tests unitarios, de integración y de concurrencia
@@ -254,12 +268,18 @@ agenda/
 | GET | `/api/v1/availability/?date=&service=` | Público | Horarios libres y cupo restante |
 | POST | `/api/v1/appointments/` | Público | Solicitar cita (confirma o deja en espera) |
 | GET | `/api/v1/appointments/{id}/` | Público | Detalle de cita por UUID (incluye `waitlist_position`) |
-| GET | `/api/v1/waitlist/?date=YYYY-MM-DD` | Staff (`IsAdminUser`) | Lista FIFO de citas en espera con posición |
-| POST | `/api/v1/appointments/{id}/cancel/` | Público (Fase 5) | Cancelar cita |
-| POST | `/api/v1/appointments/{id}/reschedule/` | Público (Fase 5) | Reprogramar cita |
-| GET/PUT | `/api/v1/day-configs/{date}/` | Staff (Fase 6) | Cupo y apertura/cierre del día |
-| GET/PUT | `/api/v1/workers/{id}/schedule/` | Staff (Fase 6) | Horario del trabajador |
-| POST | `/api/v1/workers/{id}/exceptions/` | Staff (Fase 6) | Ausencia o día especial |
+| GET | `/api/v1/appointments/?unserviceable=true` | Staff | Listado de citas en espera que no caben en ningún horario |
+| GET | `/api/v1/waitlist/?date=YYYY-MM-DD` | Staff | Lista FIFO de citas en espera con posición |
+| POST | `/api/v1/appointments/{id}/cancel/` | Público | Cancelar cita |
+| POST | `/api/v1/appointments/{id}/reschedule/` | Público | Reprogramar cita |
+| GET | `/api/v1/workers/{id}/schedule/` | Staff / Trabajador propio | Horario semanal y excepciones futuras |
+| PUT | `/api/v1/workers/{id}/schedule/` | Staff / Trabajador propio | Reemplaza horario semanal (soporta `confirm`, `dry_run`) |
+| POST | `/api/v1/workers/{id}/exceptions/` | Staff / Trabajador propio | Crea ausencia u horario especial (soporta `confirm`, `dry_run`) |
+| DELETE | `/api/v1/workers/{id}/exceptions/{exc_id}/` | Staff / Trabajador propio | Elimina una excepción de horario |
+| PATCH | `/api/v1/workers/{id}/` | Staff | Activa o desactiva trabajador (`is_active`, `confirm`, `dry_run`) |
+| GET | `/api/v1/day-configs/{date}/` | Staff | Configuración del día y resumen de cupos/ocupación |
+| PUT | `/api/v1/day-configs/{date}/` | Staff | Actualiza cupo y apertura (`is_open`, `max_appointments`, `note`) |
+| GET/PUT | `/api/v1/day-configs/weekday/{0-6}/` | Staff | Configuración por defecto por día de la semana |
 
 ---
 
@@ -411,6 +431,59 @@ Utiliza `AppointmentBusySlots` para descontar citas en `OCCUPYING_STATUSES` de l
 }
 ```
 
+---
+
+### Cambios de Horario y Esquema de Impacto (`PUT /api/v1/workers/{id}/schedule/`)
+
+Permite previsualizar (`dry_run=true`) o aplicar (`confirm=true`) cambios de horario:
+
+**Payload:**
+
+```json
+{
+  "entries": [
+    {
+      "weekday": 0,
+      "start_time": "09:00",
+      "end_time": "14:00",
+      "break_start": null,
+      "break_end": null
+    }
+  ],
+  "confirm": false,
+  "dry_run": false
+}
+```
+
+**Respuesta cuando afecta citas sin confirmación (`409 Conflict`):**
+
+```json
+{
+  "code": "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION",
+  "detail": "El cambio de horario afecta citas existentes y requiere confirmación.",
+  "impact": {
+    "displaced": [
+      {
+        "appointment_id": "7fa82645-17a4-44cf-a6e5-4f402f04df97",
+        "date": "2026-10-12",
+        "start_at": "2026-10-12T15:00:00-06:00",
+        "requester_name": "Ana Pérez",
+        "outcome": "WAITLISTED",
+        "new_worker_name": null,
+        "unserviceable": true
+      }
+    ],
+    "reassigned": 0,
+    "waitlisted": 1,
+    "unserviceable": 1,
+    "promoted_from_waitlist": 0,
+    "over_quota": []
+  }
+}
+```
+
+---
+
 ## Configuración (`settings` / variables de entorno)
 
 | Variable | Default | Descripción |
@@ -444,12 +517,14 @@ uv run celery -A config worker -l info   # procesador de tareas asíncronas
 uv run celery -A config beat -l info     # programador de tareas periódicas
 ```
 
-### Comandos de gestión de lista de espera
+### Comandos de gestión de lista de espera y revalidación
 
 ```bash
 uv run python manage.py process_waitlist                 # procesa todas las fechas activas
 uv run python manage.py process_waitlist --date 2026-10-12 # procesa una fecha específica
 uv run python manage.py expire_waitlist                  # expira citas en espera vencidas
+uv run python manage.py revalidate_assignments           # revalida citas de todos los trabajadores
+uv run python manage.py revalidate_assignments --worker 1# revalida citas de un trabajador específico
 ```
 
 ### Tests y calidad
