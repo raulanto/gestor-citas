@@ -3,6 +3,7 @@
 from django.contrib import admin, messages
 from django.http import HttpRequest
 
+from agenda.admin.forms import AppointmentCreationForm
 from agenda.constants import AppointmentStatus
 from agenda.models import Appointment, AppointmentEvent
 from agenda.selectors.waitlist import waitlist_position
@@ -33,7 +34,7 @@ class AppointmentEventInline(admin.TabularInline):
 
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
-    """Read-only admin interface for viewing appointments and their audit history."""
+    """Admin interface for viewing appointments, audit history, and booking new appointments."""
 
     list_display = (
         "id",
@@ -72,6 +73,59 @@ class AppointmentAdmin(admin.ModelAdmin):
         "complete_selected_action",
         "mark_no_show_selected_action",
     ]
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Appointment | None = None):
+        if obj is None:
+            return ()
+        return self.readonly_fields
+
+    def get_fields(self, request: HttpRequest, obj: Appointment | None = None):
+        if obj is None:
+            return ("requester", "service", "start_at")
+        return self.readonly_fields
+
+    def get_inlines(self, request: HttpRequest, obj: Appointment | None = None):
+        if obj is None:
+            return []
+        return self.inlines
+
+    def get_form(
+        self, request: HttpRequest, obj: Appointment | None = None, change=False, **kwargs
+    ):
+        if obj is None:
+
+            class FormWithRequest(AppointmentCreationForm):
+                def __init__(self, *args, **form_kwargs):
+                    form_kwargs.setdefault("request", request)
+                    super().__init__(*args, **form_kwargs)
+
+            return FormWithRequest
+        return super().get_form(request, obj, change=change, **kwargs)
+
+    def save_model(self, request: HttpRequest, obj: Appointment, form, change: bool) -> None:
+        if not change and hasattr(form, "_booking_result") and form._booking_result:
+            result = form._booking_result
+            appt = result.appointment
+            if result.outcome == AppointmentStatus.CONFIRMED and appt.worker:
+                self.message_user(
+                    request,
+                    (
+                        f"Cita creada y asignada a {appt.worker.full_name}. "
+                        f"Token de gestión: {result.manage_token}"
+                    ),
+                    level=messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    (
+                        "Cita creada en lista de espera (sin personal libre). "
+                        f"Token de gestión: {result.manage_token}"
+                    ),
+                    level=messages.WARNING,
+                )
+        else:
+            super().save_model(request, obj, form, change)
 
     @admin.display(description="Posición en espera")
     def waitlist_position_display(self, obj: Appointment) -> str:
@@ -159,7 +213,7 @@ class AppointmentAdmin(admin.ModelAdmin):
             )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
+        return True
 
     def has_delete_permission(self, request: HttpRequest, obj: Appointment | None = None) -> bool:
         return False

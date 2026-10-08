@@ -6,8 +6,15 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import RequestFactory
 
-from agenda.admin import DayConfigAdmin, RequesterAdmin, ServiceAdmin, WorkerAdmin
+from agenda.admin import (
+    AppointmentAdmin,
+    DayConfigAdmin,
+    RequesterAdmin,
+    ServiceAdmin,
+    WorkerAdmin,
+)
 from agenda.models import (
+    Appointment,
     DayConfig,
     ExceptionKind,
     Requester,
@@ -344,6 +351,7 @@ class TestDayConfigModel:
             DayConfig.objects.create(date=target_date, max_appointments=15)
 
 
+@pytest.mark.django_db
 class TestAdminPermissions:
     def test_hard_delete_disabled_for_catalogs(self):
         site = AdminSite()
@@ -367,3 +375,104 @@ class TestAdminPermissions:
 
         cfg_weekday = DayConfig(weekday=Weekday.MONDAY)
         assert "Lunes" in admin_instance.scope_display(cfg_weekday)
+
+    def test_appointment_admin_permissions_and_fields(self):
+        import uuid
+
+        site = AdminSite()
+        factory = RequestFactory()
+        request = factory.get("/admin/")
+        admin_instance = AppointmentAdmin(Appointment, site)
+
+        assert admin_instance.has_add_permission(request) is True
+        assert admin_instance.has_delete_permission(request) is False
+        assert admin_instance.get_readonly_fields(request, obj=None) == ()
+        assert admin_instance.get_fields(request, obj=None) == ("requester", "service", "start_at")
+        assert admin_instance.get_inlines(request, obj=None) == []
+
+        appt = Appointment(id=uuid.uuid4())
+        assert len(admin_instance.get_readonly_fields(request, obj=appt)) > 0
+        assert len(admin_instance.get_inlines(request, obj=appt)) == 1
+
+    def test_appointment_admin_form_booking_success(self, monkeypatch):
+        from zoneinfo import ZoneInfo
+
+        from django.contrib.auth.models import AnonymousUser
+        from django.utils import timezone
+
+        from agenda.constants import AppointmentStatus
+
+        site = AdminSite()
+        factory = RequestFactory()
+        request = factory.get("/admin/")
+        request.user = AnonymousUser()
+
+        service = ServiceFactory(duration_minutes=30, is_active=True)
+        requester = RequesterFactory()
+        worker = WorkerFactory(is_active=True)
+        WorkScheduleFactory(
+            worker=worker,
+            weekday=Weekday.MONDAY,
+            start_time=datetime.time(9, 0),
+            end_time=datetime.time(17, 0),
+        )
+
+        admin_instance = AppointmentAdmin(Appointment, site)
+        form_class = admin_instance.get_form(request, obj=None)
+
+        tz = ZoneInfo("America/Mexico_City")
+        start_at = datetime.datetime(2026, 10, 12, 10, 0, tzinfo=tz)
+        mock_now = datetime.datetime(2026, 10, 12, 6, 0, tzinfo=tz)
+        monkeypatch.setattr(timezone, "now", lambda: mock_now)
+
+        form = form_class(
+            data={
+                "requester": requester.pk,
+                "service": service.pk,
+                "start_at": start_at,
+            }
+        )
+        assert form.is_valid(), form.errors
+
+        created_appt = form.save(commit=False)
+        assert created_appt.pk is not None
+        assert created_appt.status == AppointmentStatus.CONFIRMED
+        assert created_appt.worker_id == worker.id
+
+        from django.contrib.messages.storage.cookie import CookieStorage
+
+        request._messages = CookieStorage(request)
+        admin_instance.save_model(request, created_appt, form, change=False)
+
+    def test_appointment_admin_form_domain_error_handled(self, monkeypatch):
+        from zoneinfo import ZoneInfo
+
+        from django.contrib.auth.models import AnonymousUser
+        from django.utils import timezone
+
+        site = AdminSite()
+        factory = RequestFactory()
+        request = factory.get("/admin/")
+        request.user = AnonymousUser()
+
+        service = ServiceFactory(duration_minutes=30, is_active=True)
+        requester = RequesterFactory()
+        DayConfigFactory(date=datetime.date(2026, 10, 12), weekday=None, is_open=False)
+
+        admin_instance = AppointmentAdmin(Appointment, site)
+        form_class = admin_instance.get_form(request, obj=None)
+
+        tz = ZoneInfo("America/Mexico_City")
+        start_at = datetime.datetime(2026, 10, 12, 10, 0, tzinfo=tz)
+        mock_now = datetime.datetime(2026, 10, 12, 6, 0, tzinfo=tz)
+        monkeypatch.setattr(timezone, "now", lambda: mock_now)
+
+        form = form_class(
+            data={
+                "requester": requester.pk,
+                "service": service.pk,
+                "start_at": start_at,
+            }
+        )
+        assert not form.is_valid()
+        assert "cerrado" in form.errors["__all__"][0]

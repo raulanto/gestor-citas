@@ -2,6 +2,7 @@
 
 from agenda.admin.appointments import AppointmentAdmin, AppointmentEventInline
 from agenda.admin.day_configs import DayConfigAdmin
+from agenda.admin.forms import AppointmentCreationForm
 from agenda.admin.mixins import WaitlistTriggerMixin
 from agenda.admin.requesters import RequesterAdmin
 from agenda.admin.services import ServiceAdmin
@@ -15,6 +16,7 @@ from agenda.admin.workers import (
 
 __all__ = [
     "AppointmentAdmin",
+    "AppointmentCreationForm",
     "AppointmentEventInline",
     "DayConfigAdmin",
     "RequesterAdmin",

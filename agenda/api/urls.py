@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.routers import DefaultRouter
 
 from agenda.api.auth.views import LoginView, LogoutView, MeView, TokenRefreshCustomView
 from agenda.api.health import HealthCheckView, HealthReadyView
@@ -26,6 +27,8 @@ from agenda.api.views import (
 )
 
 app_name = "agenda"
+
+router = DefaultRouter()
 
 urlpatterns = [
     # Public & Health
@@ -84,7 +87,7 @@ urlpatterns = [
         DayConfigWeekdayView.as_view(),
         name="day_config_weekday",
     ),
-]
+] + router.urls
 
 if getattr(settings, "API_DOCS_ENABLED", True):
     urlpatterns += [
