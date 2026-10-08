@@ -26,15 +26,22 @@ from agenda.services import (
 )
 
 
+def _get_request_actor(request: HttpRequest):
+    user = getattr(request, "user", None)
+    if user and getattr(user, "is_authenticated", False):
+        return user
+    return None
+
+
 def _handle_worker_revalidation_message(request: HttpRequest, result) -> None:
     if result.displaced or result.over_quota or result.unserviceable:
         details = []
         if result.reassigned:
-            details.append(f"{result.reassigned} reasignadas")
+            details.append(f"reasignadas: {result.reassigned}")
         if result.waitlisted:
-            details.append(f"{result.waitlisted} a lista de espera")
+            details.append(f"enviadas a espera: {result.waitlisted}")
         if result.unserviceable:
-            details.append(f"{result.unserviceable} inatendibles")
+            details.append(f"inatendibles: {result.unserviceable}")
         if result.over_quota:
             details.append(f"fechas en sobrecupo: {', '.join(result.over_quota)}")
 
@@ -241,13 +248,13 @@ class WorkerAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
 
     def save_model(self, request: HttpRequest, obj: Worker, form, change) -> None:
         super().save_model(request, obj, form, change)
-        result = revalidate_worker(obj.id, actor=request.user)
+        result = revalidate_worker(obj.id, actor=_get_request_actor(request))
         _handle_worker_revalidation_message(request, result)
 
     def save_formset(self, request: HttpRequest, form, formset, change) -> None:
         super().save_formset(request, form, formset, change)
         if form.instance and isinstance(form.instance, Worker):
-            result = revalidate_worker(form.instance.id, actor=request.user)
+            result = revalidate_worker(form.instance.id, actor=_get_request_actor(request))
             _handle_worker_revalidation_message(request, result)
 
     def has_delete_permission(self, request: HttpRequest, obj: Worker | None = None) -> bool:
@@ -264,13 +271,13 @@ class WorkScheduleAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
 
     def save_model(self, request: HttpRequest, obj: WorkSchedule, form, change) -> None:
         super().save_model(request, obj, form, change)
-        result = revalidate_worker(obj.worker_id, actor=request.user)
+        result = revalidate_worker(obj.worker_id, actor=_get_request_actor(request))
         _handle_worker_revalidation_message(request, result)
 
     def delete_model(self, request: HttpRequest, obj: WorkSchedule) -> None:
         worker_id = obj.worker_id
         super().delete_model(request, obj)
-        result = revalidate_worker(worker_id, actor=request.user)
+        result = revalidate_worker(worker_id, actor=_get_request_actor(request))
         _handle_worker_revalidation_message(request, result)
 
 
@@ -283,13 +290,13 @@ class ScheduleExceptionAdmin(WaitlistTriggerMixin, admin.ModelAdmin):
 
     def save_model(self, request: HttpRequest, obj: ScheduleException, form, change) -> None:
         super().save_model(request, obj, form, change)
-        result = revalidate_worker(obj.worker_id, actor=request.user)
+        result = revalidate_worker(obj.worker_id, actor=_get_request_actor(request))
         _handle_worker_revalidation_message(request, result)
 
     def delete_model(self, request: HttpRequest, obj: ScheduleException) -> None:
         worker_id = obj.worker_id
         super().delete_model(request, obj)
-        result = revalidate_worker(worker_id, actor=request.user)
+        result = revalidate_worker(worker_id, actor=_get_request_actor(request))
         _handle_worker_revalidation_message(request, result)
 
 

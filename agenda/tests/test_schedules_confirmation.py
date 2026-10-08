@@ -80,7 +80,7 @@ def test_set_weekly_schedule_requires_confirmation_on_impact(tz):
     # 2. With dry_run=True: returns applied=False with impact, does NOT modify DB
     res_dry = set_weekly_schedule(worker, new_entries, confirm=False, dry_run=True, now=now)
     assert res_dry.applied is False
-    assert res_dry.impact.waitlisted == 1
+    assert res_dry.impact["waitlisted"] == 1
     ws.refresh_from_db()
     assert ws.end_time == datetime.time(17, 0)
     appt.refresh_from_db()
@@ -89,9 +89,9 @@ def test_set_weekly_schedule_requires_confirmation_on_impact(tz):
     # 3. With confirm=True: applies changes to DB
     res_conf = set_weekly_schedule(worker, new_entries, confirm=True, dry_run=False, now=now)
     assert res_conf.applied is True
-    assert res_conf.impact.waitlisted == 1
-    ws.refresh_from_db()
-    assert ws.end_time == datetime.time(12, 0)
+    assert res_conf.impact["waitlisted"] == 1
+    new_ws = WorkSchedule.objects.get(worker=worker, weekday=3)
+    assert new_ws.end_time == datetime.time(12, 0)
     appt.refresh_from_db()
     assert appt.status == AppointmentStatus.WAITLISTED
     assert appt.worker is None
@@ -132,7 +132,7 @@ def test_set_weekly_schedule_applies_without_confirmation_when_no_impact(tz):
 
     res = set_weekly_schedule(worker, new_entries, confirm=False, dry_run=False, now=now)
     assert res.applied is True
-    assert len(res.impact.displaced) == 0
+    assert len(res.impact["displaced"]) == 0
 
     ws = WorkSchedule.objects.get(worker=worker, weekday=3)
     assert ws.end_time == datetime.time(17, 0)

@@ -352,7 +352,7 @@ def set_weekly_schedule(
     future_dates = _collect_worker_future_dates(worker, now=now)
 
     with transaction.atomic(), day_advisory_locks(*future_dates):
-        sid = transaction.savepoint()
+        sid = transaction.savepoint_create()
 
         WorkSchedule.objects.filter(worker=worker).delete()
         for sched in temp_schedules:
@@ -401,7 +401,7 @@ def add_exception(
     affected_dates = sorted(set(_collect_worker_future_dates(worker, now=now) + [target_date]))
 
     with transaction.atomic(), day_advisory_locks(*affected_dates):
-        sid = transaction.savepoint()
+        sid = transaction.savepoint_create()
         exc.save()
 
         reval = revalidate_worker(worker.id, actor=actor, now=now, dates=[target_date])
@@ -435,7 +435,7 @@ def remove_exception(
     affected_dates = sorted(set(_collect_worker_future_dates(worker, now=now) + [target_date]))
 
     with transaction.atomic(), day_advisory_locks(*affected_dates):
-        sid = transaction.savepoint()
+        sid = transaction.savepoint_create()
         exception.delete()
 
         reval = revalidate_worker(worker.id, actor=actor, now=now, dates=[target_date])
@@ -468,7 +468,7 @@ def set_worker_active(
     future_dates = _collect_worker_future_dates(worker, now=now)
 
     with transaction.atomic(), day_advisory_locks(*future_dates):
-        sid = transaction.savepoint()
+        sid = transaction.savepoint_create()
         worker.is_active = is_active
         worker.save(update_fields=["is_active", "updated_at"])
 
