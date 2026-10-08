@@ -154,6 +154,10 @@ class JSONFormatter(logging.Formatter):
             "taskName",
             "message",
             "request_id",
+            "request",
+            "response",
+            "server",
+            "socket",
         }
 
         for key, val in record.__dict__.items():
@@ -165,7 +169,7 @@ class JSONFormatter(logging.Formatter):
         if record.exc_text:
             payload["exception"] = redact_text(record.exc_text)
 
-        return json.dumps(payload, ensure_ascii=False)
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def get_logging_config(log_level: str = "INFO") -> dict[str, Any]:
