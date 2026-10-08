@@ -130,11 +130,11 @@ THROTTLE_USER = config("THROTTLE_USER", default="120/min")
 PAGINATION_DEFAULT_LIMIT = 25
 PAGINATION_MAX_LIMIT = 100
 
-# Django REST Framework
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "agenda.api.exception_handler.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "agenda.api.auth.authentication.CustomJWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -157,6 +157,7 @@ REST_FRAMEWORK = {
     },
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
     ],
 }
 

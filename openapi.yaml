@@ -72,6 +72,7 @@ paths:
       - Citas
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -128,6 +129,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '201':
@@ -178,6 +180,7 @@ paths:
       - Citas
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -232,6 +235,7 @@ paths:
               $ref: '#/components/schemas/AppointmentCancel'
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -287,6 +291,7 @@ paths:
       - Citas
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -341,6 +346,7 @@ paths:
       - Citas
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -407,6 +413,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '201':
@@ -462,6 +469,7 @@ paths:
       - Citas
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -514,6 +522,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '204':
@@ -540,6 +549,7 @@ paths:
       - Autenticación
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -582,6 +592,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -630,6 +641,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -679,6 +691,7 @@ paths:
       - Disponibilidad
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -721,6 +734,7 @@ paths:
       - Configuración de Días
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -778,6 +792,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -825,6 +840,7 @@ paths:
       - Configuración de Días
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -883,6 +899,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -924,6 +941,7 @@ paths:
       - Salud
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -943,6 +961,7 @@ paths:
       - Salud
       security:
       - BearerAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -979,6 +998,7 @@ paths:
       - Agenda del Personal
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1029,6 +1049,7 @@ paths:
       - Lista de Espera
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1089,6 +1110,7 @@ paths:
               $ref: '#/components/schemas/PatchedWorkerPatch'
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1160,6 +1182,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1224,6 +1247,7 @@ paths:
       - Horarios y Excepciones
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1277,6 +1301,7 @@ paths:
       - Horarios y Excepciones
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1335,6 +1360,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2397,3 +2423,7 @@ components:
       name: X-Manage-Token
       description: 'Token de gestión entregado al solicitante en la creación o reprogramación.
         Cabecera: ''X-Manage-Token: <token>''.'
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
