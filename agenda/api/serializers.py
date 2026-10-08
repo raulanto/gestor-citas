@@ -94,8 +94,23 @@ class RequesterInputSerializer(serializers.Serializer):
         return attrs
 
 
+class RequesterPublicDetailSerializer(serializers.Serializer):
+    """Public requester serializer with minimal personal data (no phone, no email)."""
+
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+
+
+class RequesterWorkerDetailSerializer(serializers.Serializer):
+    """Worker requester serializer with contact phone for appointment fulfillment (no email)."""
+
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    phone = serializers.CharField()
+
+
 class RequesterDetailSerializer(serializers.Serializer):
-    """Detail serializer for requester in appointment response."""
+    """Staff full requester detail serializer with all contact information."""
 
     id = serializers.IntegerField()
     full_name = serializers.CharField()
@@ -187,11 +202,10 @@ class AppointmentListQuerySerializer(serializers.Serializer):
     unserviceable = serializers.BooleanField(required=False, default=False)
 
 
-class AppointmentDetailSerializer(serializers.ModelSerializer):
-    """Response serializer for appointment details."""
+class BaseAppointmentDetailSerializer(serializers.ModelSerializer):
+    """Base response serializer for appointment details."""
 
     service = ServiceSummarySerializer()
-    requester = RequesterDetailSerializer()
     worker_name = serializers.SerializerMethodField()
     waitlist_position = serializers.SerializerMethodField()
     reschedules_remaining = serializers.SerializerMethodField()
@@ -208,7 +222,6 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             "date",
             "start_at",
             "end_at",
-            "requester",
             "worker_name",
             "waitlist_position",
             "reschedule_count",
@@ -240,6 +253,88 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
     def get_rescheduled_to(self, obj: Appointment) -> str | None:
         child = obj.rescheduled_to
         return str(child.id) if child is not None else None
+
+
+class RequesterAppointmentDetailSerializer(BaseAppointmentDetailSerializer):
+    """Appointment detail serializer for requesters with minimal personal data."""
+
+    requester = RequesterPublicDetailSerializer()
+
+    class Meta(BaseAppointmentDetailSerializer.Meta):
+        fields = ["requester", *BaseAppointmentDetailSerializer.Meta.fields]
+
+
+class WorkerAppointmentDetailSerializer(BaseAppointmentDetailSerializer):
+    """Appointment detail serializer for assigned workers with requester phone."""
+
+    requester = RequesterWorkerDetailSerializer()
+
+    class Meta(BaseAppointmentDetailSerializer.Meta):
+        fields = ["requester", *BaseAppointmentDetailSerializer.Meta.fields]
+
+
+class StaffAppointmentDetailSerializer(BaseAppointmentDetailSerializer):
+    """Full appointment detail serializer for staff with full requester details."""
+
+    requester = RequesterDetailSerializer()
+
+    class Meta(BaseAppointmentDetailSerializer.Meta):
+        fields = ["requester", *BaseAppointmentDetailSerializer.Meta.fields]
+
+
+# Default / backward-compatible alias for staff appointment detail
+AppointmentDetailSerializer = StaffAppointmentDetailSerializer
+
+
+class AppointmentBookingResponseSerializer(BaseAppointmentDetailSerializer):
+    """Appointment response serializer for booking and reschedule with one-time manage_token."""
+
+    manage_token = serializers.CharField()
+    requester = RequesterPublicDetailSerializer()
+
+    class Meta(BaseAppointmentDetailSerializer.Meta):
+        fields = [
+            "manage_token",
+            "requester",
+            *BaseAppointmentDetailSerializer.Meta.fields,
+        ]
+
+
+class WorkerAgendaAppointmentSerializer(serializers.ModelSerializer):
+    """Serializer for appointments in a worker's daily agenda."""
+
+    service = ServiceSummarySerializer()
+    requester = RequesterWorkerDetailSerializer()
+
+    class Meta:
+        model = Appointment
+        fields = ["id", "service", "start_at", "end_at", "requester"]
+
+
+class WorkerAgendaQuerySerializer(serializers.Serializer):
+    """Query parameters serializer for me/agenda endpoint."""
+
+    date = serializers.DateField(
+        required=True,
+        error_messages={
+            "required": "El parámetro 'date' es obligatorio.",
+            "invalid": "Formato de fecha inválido. Utilice el formato YYYY-MM-DD.",
+        },
+    )
+    worker_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        error_messages={
+            "invalid": "El parámetro 'worker_id' debe ser un identificador numérico.",
+        },
+    )
+
+
+class RotateTokenResponseSerializer(serializers.Serializer):
+    """Response serializer for rotating an appointment manage token."""
+
+    appointment_id = serializers.UUIDField()
+    manage_token = serializers.CharField()
 
 
 # ---------------------------------------------------------------------------

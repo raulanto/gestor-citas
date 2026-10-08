@@ -2,18 +2,21 @@
 
 from django.urls import path
 
+from agenda.api.auth.views import LoginView, LogoutView, MeView, TokenRefreshCustomView
 from agenda.api.views import (
     AppointmentCancelView,
     AppointmentCompleteView,
     AppointmentDetailView,
     AppointmentNoShowView,
     AppointmentRescheduleView,
+    AppointmentRotateTokenView,
     AppointmentsView,
     AvailabilityView,
     DayConfigDateView,
     DayConfigWeekdayView,
     HealthCheckView,
     WaitlistView,
+    WorkerAgendaView,
     WorkerDetailView,
     WorkerExceptionDetailView,
     WorkerExceptionsView,
@@ -23,8 +26,15 @@ from agenda.api.views import (
 app_name = "agenda"
 
 urlpatterns = [
+    # Public & Health
     path("health/", HealthCheckView.as_view(), name="health"),
     path("availability/", AvailabilityView.as_view(), name="availability"),
+    # Auth endpoints
+    path("auth/token/", LoginView.as_view(), name="auth_token"),
+    path("auth/token/refresh/", TokenRefreshCustomView.as_view(), name="auth_token_refresh"),
+    path("auth/logout/", LogoutView.as_view(), name="auth_logout"),
+    path("auth/me/", MeView.as_view(), name="auth_me"),
+    # Appointments
     path("appointments/", AppointmentsView.as_view(), name="appointments"),
     path("appointments/<uuid:id>/", AppointmentDetailView.as_view(), name="appointment_detail"),
     path(
@@ -47,7 +57,15 @@ urlpatterns = [
         AppointmentNoShowView.as_view(),
         name="appointment_no_show",
     ),
+    path(
+        "appointments/<uuid:id>/token/",
+        AppointmentRotateTokenView.as_view(),
+        name="appointment_rotate_token",
+    ),
+    # Waitlist & Agenda
     path("waitlist/", WaitlistView.as_view(), name="waitlist"),
+    path("me/agenda/", WorkerAgendaView.as_view(), name="worker_agenda"),
+    # Workers & Schedules
     path("workers/<int:id>/schedule/", WorkerScheduleView.as_view(), name="worker_schedule"),
     path("workers/<int:id>/exceptions/", WorkerExceptionsView.as_view(), name="worker_exceptions"),
     path(
@@ -56,6 +74,7 @@ urlpatterns = [
         name="worker_exception_detail",
     ),
     path("workers/<int:id>/", WorkerDetailView.as_view(), name="worker_detail"),
+    # Day Configurations
     path("day-configs/<str:date>/", DayConfigDateView.as_view(), name="day_config_date"),
     path(
         "day-configs/weekday/<int:weekday>/",

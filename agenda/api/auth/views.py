@@ -132,13 +132,14 @@ class TokenRefreshCustomView(APIView):
         raw_refresh = serializer.validated_data["refresh"]
         try:
             token = RefreshToken(raw_refresh)
+            token.check_blacklist()
             data = {"access": str(token.access_token)}
 
             if getattr(settings, "SIMPLE_JWT", {}).get("ROTATE_REFRESH_TOKENS", True):
                 if getattr(settings, "SIMPLE_JWT", {}).get("BLACKLIST_AFTER_ROTATION", True):
                     try:
                         token.blacklist()
-                    except AttributeError:
+                    except (AttributeError, Exception):
                         pass
                 token.set_jti()
                 token.set_exp()
@@ -146,7 +147,7 @@ class TokenRefreshCustomView(APIView):
                 data["refresh"] = str(token)
 
             return Response(data, status=status.HTTP_200_OK)
-        except (TokenError, InvalidToken):
+        except (TokenError, InvalidToken, Exception):
             return Response(
                 {
                     "code": "INVALID_TOKEN",

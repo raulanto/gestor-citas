@@ -3,15 +3,21 @@
 import datetime
 import uuid
 
+from django.core.paginator import Paginator
 from rest_framework import status
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from agenda.api.permissions import (
+    IsAppointmentWorkerOrStaff,
+    IsStaff,
+    IsWorkerSelfOrStaff,
+)
+from agenda.api.roles import Role, get_user_role
 from agenda.api.serializers import (
+    AppointmentBookingResponseSerializer,
     AppointmentCancelSerializer,
     AppointmentCreateSerializer,
     AppointmentDetailSerializer,
@@ -22,9 +28,15 @@ from agenda.api.serializers import (
     DayConfigDetailSerializer,
     DayConfigSummaryResponseSerializer,
     DayConfigUpdateSerializer,
+    RequesterAppointmentDetailSerializer,
+    RotateTokenResponseSerializer,
     ScheduleExceptionCreateSerializer,
+    StaffAppointmentDetailSerializer,
     WaitlistEntrySerializer,
     WaitlistQuerySerializer,
+    WorkerAgendaAppointmentSerializer,
+    WorkerAgendaQuerySerializer,
+    WorkerAppointmentDetailSerializer,
     WorkerPatchSerializer,
     WorkerScheduleDetailSerializer,
     WorkScheduleSetSerializer,
@@ -40,6 +52,7 @@ from agenda.selectors import (
     list_appointments_queryset,
     list_unserviceable_waitlist,
     list_waitlist,
+    list_worker_agenda,
 )
 from agenda.services import (
     add_exception,
@@ -50,37 +63,25 @@ from agenda.services import (
     mark_no_show,
     remove_exception,
     reschedule_appointment,
+    rotate_manage_token,
     schedule_waitlist_processing,
     set_weekly_schedule,
     set_worker_active,
 )
+from agenda.services.manage_token import verify_manage_token
 
 
-def _check_worker_permission(request: Request, worker: Worker) -> Response | None:
-    """Validate that the requesting user has permission to view or manage the given worker."""
-    if not request.user or not request.user.is_authenticated:
-        return Response(
-            {"code": "AUTHENTICATION_REQUIRED", "detail": "Se requiere autenticación."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-    if request.user.is_staff:
-        return None
-    if hasattr(request.user, "worker_profile") and request.user.worker_profile.id == worker.id:
-        return None
-    return Response(
-        {
-            "code": "PERMISSION_DENIED",
-            "detail": "No tiene permisos para consultar o modificar este trabajador.",
-        },
-        status=status.HTTP_403_FORBIDDEN,
-    )
+def _get_manage_token_from_request(request: Request) -> str | None:
+    token = request.headers.get("X-Manage-Token")
+    if not token:
+        token = request.META.get("HTTP_X_MANAGE_TOKEN")
+    return token.strip() if token else None
 
 
 class HealthCheckView(APIView):
     """Health check endpoint confirming API availability."""
 
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
@@ -89,8 +90,7 @@ class HealthCheckView(APIView):
 class AvailabilityView(APIView):
     """Query available appointment slots and daily capacity for a service on a given date."""
 
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         query_serializer = AvailabilityQuerySerializer(data=request.query_params)
@@ -128,14 +128,21 @@ class AvailabilityView(APIView):
 class AppointmentsView(APIView):
     """List appointments (Staff only, GET) or book a new appointment (Public, POST)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-
-    def get_permissions(self):
-        if self.request.method == "GET":
-            return [IsAdminUser()]
-        return []
+    permission_classes = [AllowAny]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
+        role = get_user_role(request.user)
+        if role == Role.ANONYMOUS:
+            return Response(
+                {"code": "NOT_AUTHENTICATED", "detail": "Se requiere autenticación."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if role != Role.STAFF:
+            return Response(
+                {"code": "FORBIDDEN", "detail": "No tiene permisos de staff para listar citas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         query_serializer = AppointmentListQuerySerializer(data=request.query_params)
         if not query_serializer.is_valid():
             return Response(
@@ -151,18 +158,33 @@ class AppointmentsView(APIView):
         status_filter = query_serializer.validated_data.get("status")
         unserviceable = query_serializer.validated_data.get("unserviceable", False)
 
+        page_size = 50
+        page_num = int(request.query_params.get("page", 1))
+
         if unserviceable:
             appts = list_unserviceable_waitlist(from_date=target_date)
-            paginator = PageNumberPagination()
-            page = paginator.paginate_queryset(appts, request)
-            serializer = AppointmentDetailSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+            paginator = Paginator(appts, page_size)
+            page = paginator.get_page(page_num)
+            serializer = StaffAppointmentDetailSerializer(page.object_list, many=True)
+            return Response(
+                {
+                    "count": paginator.count,
+                    "results": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
 
         qs = list_appointments_queryset(target_date=target_date, status_filter=status_filter)
-        paginator = PageNumberPagination()
-        page = paginator.paginate_queryset(qs, request)
-        serializer = AppointmentDetailSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        paginator = Paginator(qs, page_size)
+        page = paginator.get_page(page_num)
+        serializer = StaffAppointmentDetailSerializer(page.object_list, many=True)
+        return Response(
+            {
+                "count": paginator.count,
+                "results": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def post(self, request: Request, *args, **kwargs) -> Response:
         serializer = AppointmentCreateSerializer(data=request.data)
@@ -198,8 +220,9 @@ class AppointmentsView(APIView):
             actor=actor,
         )
 
-        response_serializer = AppointmentDetailSerializer(result.appointment)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        response_data = AppointmentBookingResponseSerializer(result.appointment).data
+        response_data["manage_token"] = result.manage_token
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 AppointmentCreateView = AppointmentsView
@@ -207,22 +230,41 @@ AppointmentListView = AppointmentsView
 
 
 class AppointmentDetailView(APIView):
-    """Retrieve details for an existing appointment."""
+    """Retrieve details for an existing appointment with role-appropriate exposure."""
 
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
-        serializer = AppointmentDetailSerializer(appointment)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        role = get_user_role(request.user)
+
+        if role == Role.STAFF:
+            serializer = StaffAppointmentDetailSerializer(appointment)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        if role == Role.WORKER:
+            worker = getattr(request.user, "worker_profile", None)
+            if worker is not None and appointment.worker_id == worker.id:
+                serializer = WorkerAppointmentDetailSerializer(appointment)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # Check manage token for requester access
+        token = _get_manage_token_from_request(request)
+        if token and verify_manage_token(appointment, token):
+            serializer = RequesterAppointmentDetailSerializer(appointment)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # Uniform 404 to prevent ID enumeration
+        return Response(
+            {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
 
 class AppointmentCancelView(APIView):
-    """Cancel an appointment using its UUID (or staff forced)."""
+    """Cancel an appointment using manage token or staff force."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         serializer = AppointmentCancelSerializer(data=request.data)
@@ -237,16 +279,30 @@ class AppointmentCancelView(APIView):
             )
 
         force = serializer.validated_data.get("force", False)
-        if force and not (request.user and request.user.is_authenticated and request.user.is_staff):
+        role = get_user_role(request.user)
+
+        if force and role != Role.STAFF:
             return Response(
                 {
-                    "code": "PERMISSION_DENIED",
+                    "code": "FORBIDDEN",
                     "detail": "Se requieren permisos de staff para forzar la cancelación.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         appointment = get_appointment(id)
+
+        # Authorization: Staff or valid manage token
+        is_staff = role == Role.STAFF
+        token = _get_manage_token_from_request(request)
+        has_token = bool(token and verify_manage_token(appointment, token))
+
+        if not is_staff and not has_token:
+            return Response(
+                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         reason = serializer.validated_data.get("reason", "")
         actor = request.user if request.user and request.user.is_authenticated else None
 
@@ -256,15 +312,19 @@ class AppointmentCancelView(APIView):
             actor=actor,
             force=force,
         )
-        response_serializer = AppointmentDetailSerializer(updated_appt)
+
+        if is_staff:
+            response_serializer = StaffAppointmentDetailSerializer(updated_appt)
+        else:
+            response_serializer = RequesterAppointmentDetailSerializer(updated_appt)
+
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 class AppointmentRescheduleView(APIView):
     """Reschedule an existing appointment to a new date and time."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         serializer = AppointmentRescheduleSerializer(data=request.data)
@@ -279,16 +339,29 @@ class AppointmentRescheduleView(APIView):
             )
 
         force = serializer.validated_data.get("force", False)
-        if force and not (request.user and request.user.is_authenticated and request.user.is_staff):
+        role = get_user_role(request.user)
+
+        if force and role != Role.STAFF:
             return Response(
                 {
-                    "code": "PERMISSION_DENIED",
+                    "code": "FORBIDDEN",
                     "detail": "Se requieren permisos de staff para forzar la reprogramación.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         appointment = get_appointment(id)
+
+        is_staff = role == Role.STAFF
+        token = _get_manage_token_from_request(request)
+        has_token = bool(token and verify_manage_token(appointment, token))
+
+        if not is_staff and not has_token:
+            return Response(
+                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         new_start_at = serializer.validated_data["start_at"]
         allow_waitlist = serializer.validated_data.get("allow_waitlist", False)
         actor = request.user if request.user and request.user.is_authenticated else None
@@ -300,43 +373,72 @@ class AppointmentRescheduleView(APIView):
             force=force,
             allow_waitlist=allow_waitlist,
         )
-        response_serializer = AppointmentDetailSerializer(result.appointment)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+        response_data = AppointmentBookingResponseSerializer(result.appointment).data
+        response_data["manage_token"] = result.manage_token
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class AppointmentCompleteView(APIView):
-    """Mark a confirmed appointment as completed (Staff only)."""
+    """Mark a confirmed appointment as completed (Worker or Staff)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAppointmentWorkerOrStaff]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
+        self.check_object_permissions(request, appointment)
+
         actor = request.user if request.user and request.user.is_authenticated else None
         updated_appt = complete_appointment(appointment, actor=actor)
-        serializer = AppointmentDetailSerializer(updated_appt)
+
+        role = get_user_role(request.user)
+        if role == Role.STAFF:
+            serializer = StaffAppointmentDetailSerializer(updated_appt)
+        else:
+            serializer = WorkerAppointmentDetailSerializer(updated_appt)
+
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AppointmentNoShowView(APIView):
-    """Mark a confirmed appointment as no-show (Staff only)."""
+    """Mark a confirmed appointment as no-show (Worker or Staff)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAppointmentWorkerOrStaff]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
+        self.check_object_permissions(request, appointment)
+
         actor = request.user if request.user and request.user.is_authenticated else None
         updated_appt = mark_no_show(appointment, actor=actor)
-        serializer = AppointmentDetailSerializer(updated_appt)
+
+        role = get_user_role(request.user)
+        if role == Role.STAFF:
+            serializer = StaffAppointmentDetailSerializer(updated_appt)
+        else:
+            serializer = WorkerAppointmentDetailSerializer(updated_appt)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AppointmentRotateTokenView(APIView):
+    """Rotate the manage token for an appointment (Staff only)."""
+
+    permission_classes = [IsStaff]
+
+    def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
+        appointment = get_appointment(id)
+        new_token = rotate_manage_token(appointment, actor=request.user)
+        serializer = RotateTokenResponseSerializer(
+            {"appointment_id": appointment.id, "manage_token": new_token}
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class WaitlistView(APIView):
     """List waitlisted appointments for a specific date in FIFO order (Staff only)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsStaff]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
         query_serializer = WaitlistQuerySerializer(data=request.query_params)
@@ -356,24 +458,78 @@ class WaitlistView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class WorkerAgendaView(APIView):
+    """Retrieve daily confirmed agenda for a worker."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, *args, **kwargs) -> Response:
+        query_serializer = WorkerAgendaQuerySerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response(
+                {
+                    "code": "INVALID_PARAMETERS",
+                    "detail": "Parámetros de consulta inválidos.",
+                    "errors": query_serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_date = query_serializer.validated_data["date"]
+        query_worker_id = query_serializer.validated_data.get("worker_id")
+        role = get_user_role(request.user)
+
+        if role == Role.WORKER:
+            worker = getattr(request.user, "worker_profile", None)
+            if query_worker_id is not None and query_worker_id != worker.id:
+                return Response(
+                    {
+                        "code": "FORBIDDEN",
+                        "detail": "Un trabajador no puede consultar la agenda de otro trabajador.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            effective_worker_id = worker.id
+
+        elif role == Role.STAFF:
+            if query_worker_id is None:
+                return Response(
+                    {
+                        "code": "INVALID_PARAMETERS",
+                        "detail": "El parámetro 'worker_id' es obligatorio para staff.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            worker = Worker.objects.filter(id=query_worker_id).first()
+            if worker is None:
+                raise WorkerNotFound()
+            effective_worker_id = worker.id
+
+        else:
+            return Response(
+                {"code": "FORBIDDEN", "detail": "No tiene permisos para consultar la agenda."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        appts = list_worker_agenda(effective_worker_id, target_date)
+        serializer = WorkerAgendaAppointmentSerializer(appts, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 # ---------------------------------------------------------------------------
-# Phase 6 Schedule Management API Views
+# Schedule Management API Views
 # ---------------------------------------------------------------------------
 
 
 class WorkerScheduleView(APIView):
     """View and replace a worker's weekly work schedule."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
+    permission_classes = [IsWorkerSelfOrStaff]
 
     def get(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
             raise WorkerNotFound()
-
-        perm_err = _check_worker_permission(request, worker)
-        if perm_err is not None:
-            return perm_err
 
         schedule_data = get_worker_schedule(worker)
         serializer = WorkerScheduleDetailSerializer(schedule_data)
@@ -383,10 +539,6 @@ class WorkerScheduleView(APIView):
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
             raise WorkerNotFound()
-
-        perm_err = _check_worker_permission(request, worker)
-        if perm_err is not None:
-            return perm_err
 
         serializer = WorkScheduleSetSerializer(data=request.data)
         if not serializer.is_valid():
@@ -419,16 +571,12 @@ class WorkerScheduleView(APIView):
 class WorkerExceptionsView(APIView):
     """Add a schedule exception for a worker."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
+    permission_classes = [IsWorkerSelfOrStaff]
 
     def post(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
             raise WorkerNotFound()
-
-        perm_err = _check_worker_permission(request, worker)
-        if perm_err is not None:
-            return perm_err
 
         serializer = ScheduleExceptionCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -460,16 +608,12 @@ class WorkerExceptionsView(APIView):
 class WorkerExceptionDetailView(APIView):
     """Delete a schedule exception for a worker."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
+    permission_classes = [IsWorkerSelfOrStaff]
 
     def delete(self, request: Request, id: int, exception_id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
             raise WorkerNotFound()
-
-        perm_err = _check_worker_permission(request, worker)
-        if perm_err is not None:
-            return perm_err
 
         exception = ScheduleException.objects.filter(id=exception_id, worker_id=worker.id).first()
         if exception is None:
@@ -500,8 +644,7 @@ class WorkerExceptionDetailView(APIView):
 class WorkerDetailView(APIView):
     """Update a worker's active status (Staff only)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsStaff]
 
     def patch(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
@@ -539,10 +682,9 @@ class WorkerDetailView(APIView):
 class DayConfigDateView(APIView):
     """Query or update configuration for a specific date (Staff only)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsStaff]
 
-    def _parse_date(self, date_str: str) -> datetime.date:
+    def _parse_date(self, date_str: str) -> datetime.date | None:
         try:
             return datetime.date.fromisoformat(date_str)
         except ValueError:
@@ -612,8 +754,7 @@ class DayConfigDateView(APIView):
 class DayConfigWeekdayView(APIView):
     """Query or update default weekday configuration (Staff only)."""
 
-    authentication_classes = [SessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsStaff]
 
     def get(self, request: Request, weekday: int, *args, **kwargs) -> Response:
         if weekday < 0 or weekday > 6:
