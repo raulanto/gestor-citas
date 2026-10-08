@@ -58,6 +58,38 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    if isinstance(exc, exceptions.Throttled):
+        wait = int(exc.wait) if exc.wait is not None else 60
+        response = Response(
+            {
+                "code": "THROTTLED",
+                "detail": f"Límite de solicitudes excedido. Intente de nuevo en {wait} segundos.",
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+        response["Retry-After"] = str(wait)
+        return response
+
+    if isinstance(exc, exceptions.ValidationError):
+        detail_msg = "Parámetros de solicitud inválidos."
+        if isinstance(exc.detail, str):
+            detail_msg = exc.detail
+        elif isinstance(exc.detail, list) and exc.detail:
+            detail_msg = str(exc.detail[0])
+
+        return Response(
+            {
+                "code": "INVALID_PARAMETERS",
+                "detail": detail_msg,
+                "errors": (
+                    exc.detail
+                    if isinstance(exc.detail, (dict, list))
+                    else {"detail": exc.detail}
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     if isinstance(exc, (Http404, exceptions.NotFound)):
         return Response(
             {
@@ -68,3 +100,4 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
         )
 
     return exception_handler(exc, context)
+

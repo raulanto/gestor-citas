@@ -11,12 +11,16 @@ from rest_framework.test import APIClient
 
 PUBLIC_WHITELIST = {
     ("GET", "/api/v1/health/"),
+    ("GET", "/api/v1/health/ready/"),
     ("GET", "/api/v1/availability/"),
     ("POST", "/api/v1/appointments/"),
     ("POST", "/api/v1/auth/token/"),
     ("POST", "/api/v1/auth/token/refresh/"),
     ("POST", "/api/v1/auth/logout/"),
+    ("GET", "/api/v1/schema/"),
+    ("GET", "/api/v1/docs/"),
 }
+
 
 
 def _extract_routes(resolver: URLResolver, prefix: str = "") -> Iterator[tuple[str, object]]:

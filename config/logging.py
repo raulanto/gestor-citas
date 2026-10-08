@@ -118,7 +118,7 @@ class JSONFormatter(logging.Formatter):
     """Format log records as single-line JSON objects."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).isoformat()
+        ts = datetime.datetime.fromtimestamp(record.created, datetime.UTC).isoformat()
         req_id = getattr(record, "request_id", None) or get_request_id()
 
         payload: dict[str, Any] = {
@@ -193,26 +193,31 @@ def get_logging_config(log_level: str = "INFO") -> dict[str, Any]:
         "root": {
             "handlers": ["console"],
             "level": log_level,
+            "filters": ["pii_redaction"],
         },
         "loggers": {
             "django": {
                 "handlers": ["console"],
                 "level": log_level,
+                "filters": ["pii_redaction"],
                 "propagate": False,
             },
             "django.request": {
                 "handlers": ["console"],
                 "level": log_level,
+                "filters": ["pii_redaction"],
                 "propagate": False,
             },
             "django.server": {
                 "handlers": ["console"],
                 "level": log_level,
+                "filters": ["pii_redaction"],
                 "propagate": False,
             },
             "agenda": {
                 "handlers": ["console"],
                 "level": log_level,
+                "filters": ["pii_redaction"],
                 "propagate": False,
             },
         },

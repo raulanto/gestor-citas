@@ -22,7 +22,6 @@ from agenda.models import (
     Worker,
     WorkSchedule,
 )
-
 from agenda.selectors.schedules import get_day_config_summary
 from agenda.selectors.workers import list_available_workers_on, resolve_worker_shift
 from agenda.services.assignment import pick_worker

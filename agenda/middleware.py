@@ -86,13 +86,15 @@ class RequestLogMiddleware:
 
         if user_id is None and hasattr(request, "user") and request.user.is_authenticated:
             user_id = request.user.pk
-            if getattr(request.user, "is_staff", False) or getattr(request.user, "is_superuser", False):
+            is_staff = getattr(request.user, "is_staff", False)
+            is_super = getattr(request.user, "is_superuser", False)
+            if is_staff or is_super:
                 role = "STAFF"
             else:
                 role = "USER"
 
         extra_data = {
-            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "ts": datetime.datetime.now(datetime.UTC).isoformat(),
             "level": level,
             "request_id": get_request_id(),
             "method": request.method,

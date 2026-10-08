@@ -544,3 +544,15 @@ class DayConfigSummaryResponseSerializer(serializers.Serializer):
     active_count = serializers.IntegerField()
     is_over_quota = serializers.BooleanField()
     active_appointments_on_closed_day = serializers.IntegerField(required=False, default=0)
+
+
+class ScheduleChangeResponseSerializer(serializers.Serializer):
+    """Response serializer for worker schedule changes impact."""
+
+    applied = serializers.BooleanField(
+        help_text="Indica si los cambios fueron aplicados en la base de datos."
+    )
+    impact = serializers.DictField(
+        help_text="Desglose del impacto sobre citas existentes."
+    )
+

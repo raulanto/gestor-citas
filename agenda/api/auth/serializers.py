@@ -22,6 +22,23 @@ class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField(required=True)
 
 
+class LoginResponseSerializer(serializers.Serializer):
+    """Output serializer for successful user login."""
+
+    access = serializers.CharField(help_text="Token de acceso JWT.")
+    refresh = serializers.CharField(help_text="Token de refresco JWT.")
+
+
+class TokenRefreshResponseSerializer(serializers.Serializer):
+    """Output serializer for successful token refresh."""
+
+    access = serializers.CharField(help_text="Nuevo token de acceso JWT.")
+    refresh = serializers.CharField(
+        required=False,
+        help_text="Nuevo token de refresco JWT si la rotación está activa.",
+    )
+
+
 class MeResponseSerializer(serializers.Serializer):
     """Output serializer for current authenticated user profile."""
 
@@ -29,3 +46,4 @@ class MeResponseSerializer(serializers.Serializer):
     username = serializers.CharField()
     role = serializers.CharField()
     worker_id = serializers.IntegerField(allow_null=True)
+

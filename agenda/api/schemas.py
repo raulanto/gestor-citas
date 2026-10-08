@@ -9,24 +9,23 @@ class ApiErrorCode(StrEnum):
     """Enumeration of all error codes returned by the API."""
 
     # Domain Errors
-    DAY_CLOSED = "DAY_CLOSED"
-    SERVICE_NOT_FOUND = "SERVICE_NOT_FOUND"
-    INVALID_TIME_SLOT = "INVALID_TIME_SLOT"
-    SLOT_OUTSIDE_SHIFT = "SLOT_OUTSIDE_SHIFT"
-    SLOT_OVERLAPS_BREAK = "SLOT_OVERLAPS_BREAK"
-    ADVANCE_TOO_SHORT = "ADVANCE_TOO_SHORT"
-    ADVANCE_TOO_FAR = "ADVANCE_TOO_FAR"
-    QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
-    REQUESTER_DAILY_LIMIT = "REQUESTER_DAILY_LIMIT"
-    REQUESTER_OVERLAPPING_SLOT = "REQUESTER_OVERLAPPING_SLOT"
-    WAITLIST_FULL = "WAITLIST_FULL"
-    CANCELLATION_TOO_LATE = "CANCELLATION_TOO_LATE"
-    RESCHEDULE_LIMIT_REACHED = "RESCHEDULE_LIMIT_REACHED"
-    INVALID_STATUS_TRANSITION = "INVALID_STATUS_TRANSITION"
+    DOMAIN_ERROR = "domain_error"
+    DAY_CLOSED = "day_closed"
+    QUOTA_EXCEEDED = "quota_exceeded"
+    NO_WORKER_AVAILABLE = "no_worker_available"
+    CANCELLATION_NOT_ALLOWED = "cancellation_not_allowed"
+    RESCHEDULE_LIMIT_REACHED = "reschedule_limit_reached"
+    INVALID_STATE_TRANSITION = "invalid_state_transition"
+    INVALID_DURATION = "invalid_duration"
+    SCHEDULE_CONFLICT = "schedule_conflict"
+    INVALID_SLOT = "invalid_slot"
+    OUTSIDE_BOOKING_WINDOW = "outside_booking_window"
+    REQUESTER_LIMIT_REACHED = "requester_limit_reached"
+    WAITLIST_FULL = "waitlist_full"
+    APPOINTMENT_NOT_FOUND_DOMAIN = "appointment_not_found"
+    SERVICE_NOT_FOUND = "service_not_found"
+    WORKER_NOT_FOUND = "worker_not_found"
     SCHEDULE_CHANGE_REQUIRES_CONFIRMATION = "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION"
-    WORKER_ALREADY_EXISTS = "WORKER_ALREADY_EXISTS"
-    INVALID_SCHEDULE_ENTRY = "INVALID_SCHEDULE_ENTRY"
-    SCHEDULE_EXCEPTION_COLLISION = "SCHEDULE_EXCEPTION_COLLISION"
 
     # Authentication & Authorization Errors
     NOT_AUTHENTICATED = "NOT_AUTHENTICATED"
@@ -38,9 +37,11 @@ class ApiErrorCode(StrEnum):
     # Operational & Input Errors
     THROTTLED = "THROTTLED"
     APPOINTMENT_NOT_FOUND = "APPOINTMENT_NOT_FOUND"
+    EXCEPTION_NOT_FOUND = "EXCEPTION_NOT_FOUND"
     INVALID_PARAMETERS = "INVALID_PARAMETERS"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+
 
 
 class ErrorResponseSerializer(serializers.Serializer):
@@ -70,3 +71,19 @@ class HealthReadyResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Lista de componentes no disponibles (ej. 'database', 'cache').",
     )
+
+
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
+
+class CustomJWTScheme(OpenApiAuthenticationExtension):
+    target_class = "agenda.api.auth.authentication.CustomJWTAuthentication"
+    name = "BearerAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+

@@ -139,7 +139,9 @@ def test_waitlist_api_fifo_order_and_positions(api_client, staff_user, tz):
 
     resp = api_client.get(f"/api/v1/waitlist/?date={target_date.isoformat()}")
     assert resp.status_code == 200
-    data = resp.json()
+    res_json = resp.json()
+    assert "results" in res_json
+    data = res_json["results"]
 
     assert len(data) == 2
     assert data[0]["id"] == str(appt1.id)
@@ -178,7 +180,8 @@ def test_waitlist_api_no_n_plus_one_queries(
     with django_assert_max_num_queries(5):
         resp = api_client.get(f"/api/v1/waitlist/?date={target_date.isoformat()}")
         assert resp.status_code == 200
-        assert len(resp.json()) == 5
+        assert len(resp.json()["results"]) == 5
+
 
 
 @pytest.mark.django_db

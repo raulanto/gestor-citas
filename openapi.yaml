@@ -1,0 +1,2399 @@
+openapi: 3.0.3
+info:
+  title: Agenda de Citas API
+  version: 1.0.0
+  description: Microapp Django + DRF para gestión de citas, cupos por día, asignación
+    automática de personal, lista de espera FIFO y horarios configurables.
+paths:
+  /api/v1/appointments/:
+    get:
+      operationId: appointments_list
+      description: Permite al personal Staff consultar y filtrar citas por fecha,
+        rango de fechas (hasta 92 días), estados múltiples, trabajador, servicio,
+        inatendibles y ordenamiento.
+      summary: Listar citas con filtros y paginación (Staff)
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        description: Filtrar por fecha exacta (YYYY-MM-DD).
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Fecha inicial del rango (YYYY-MM-DD).
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Fecha final del rango (YYYY-MM-DD, máximo 92 días).
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Número de resultados por página (default 25, max 100).
+      - in: query
+        name: offset
+        schema:
+          type: integer
+        description: Desplazamiento inicial para paginación.
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: 'Ordenamiento: start_at, -start_at, created_at, -created_at.'
+      - in: query
+        name: service
+        schema:
+          type: integer
+        description: ID del servicio.
+      - in: query
+        name: status
+        schema:
+          type: array
+          items:
+            type: string
+        description: Estado(s) de la cita (ej. CONFIRMED, WAITLISTED).
+      - in: query
+        name: unserviceable
+        schema:
+          type: boolean
+        description: Filtrar solo citas en espera inatendibles.
+      - in: query
+        name: worker
+        schema:
+          type: integer
+        description: ID del trabajador asignado.
+      tags:
+      - Citas
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaffAppointmentDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+    post:
+      operationId: appointments_create
+      description: Reserva una cita con asignación óptima de personal o colocación
+        en lista de espera. Devuelve un 'manage_token' de gestión única vez para que
+        el solicitante administre su cita.
+      summary: Solicitar nueva cita (Público)
+      tags:
+      - Citas
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointmentCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppointmentCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppointmentCreate'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentBookingResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/:
+    get:
+      operationId: appointments_retrieve
+      description: Devuelve el detalle de la cita. El solicitante debe proveer 'X-Manage-Token'.
+        La exposición de datos personales se segrega por rol (mínima para solicitante,
+        operativa para trabajador, total para staff).
+      summary: Detalle de cita por UUID
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffAppointmentDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/cancel/:
+    post:
+      operationId: appointments_cancel_create
+      description: Cancela una cita liberando el horario y recalculando la lista de
+        espera. El solicitante requiere 'X-Manage-Token'. Staff puede usar 'force=true'.
+      summary: Cancelar cita
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointmentCancel'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppointmentCancel'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppointmentCancel'
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffAppointmentDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/complete/:
+    post:
+      operationId: appointments_complete_create
+      description: Transiciona una cita CONFIRMED a COMPLETADA (solo trabajador asignado
+        o staff).
+      summary: Marcar cita como completada
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerAppointmentDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/no-show/:
+    post:
+      operationId: appointments_no_show_create
+      description: Transiciona una cita CONFIRMED a NO_SHOW (solo trabajador asignado
+        o staff).
+      summary: Marcar inasistencia de cita
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerAppointmentDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/reschedule/:
+    post:
+      operationId: appointments_reschedule_create
+      description: Reprograma una cita a un nuevo horario atómicamente. Devuelve un
+        nuevo 'manage_token' para la nueva cita.
+      summary: Reprogramar cita
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointmentReschedule'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppointmentReschedule'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppointmentReschedule'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentBookingResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/appointments/{id}/token/:
+    post:
+      operationId: appointments_token_create
+      description: Genera un nuevo token de gestión para la cita e invalida el anterior
+        registrando auditoría.
+      summary: Rotar token de gestión de cita (Staff)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Citas
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateTokenResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: Revoca el token de refresco agregándolo a la lista negra (blacklist).
+      summary: Cerrar sesión (Invalidar token de refresco)
+      tags:
+      - Autenticación
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      description: Retorna el identificador, nombre de usuario, rol efectivo y worker_id
+        vinculado.
+      summary: Perfil del usuario autenticado
+      tags:
+      - Autenticación
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/auth/token/:
+    post:
+      operationId: auth_token_create
+      description: Autentica usuarios con usuario y contraseña. Devuelve tokens de
+        acceso y refresco. Tras 5 intentos fallidos para un mismo usuario, se bloquea
+        por 15 minutos.
+      summary: Iniciar sesión (Obtener tokens JWT)
+      tags:
+      - Autenticación
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/auth/token/refresh/:
+    post:
+      operationId: auth_token_refresh_create
+      description: Genera un nuevo token de acceso a partir de un token de refresco
+        válido con rotación.
+      summary: Refrescar token de acceso
+      tags:
+      - Autenticación
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/availability/:
+    get:
+      operationId: availability_retrieve
+      description: Calcula los intervalos horarios libres y el cupo restante para
+        un servicio en una fecha.
+      summary: Consultar disponibilidad y cupos de un día
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        required: true
+      - in: query
+        name: service
+        schema:
+          type: integer
+          minimum: 1
+        required: true
+      tags:
+      - Disponibilidad
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayAvailability'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/day-configs/{date}/:
+    get:
+      operationId: day_configs_retrieve
+      description: Obtiene el cupo configurado, estado de apertura y métricas del
+        día.
+      summary: Consultar configuración de una fecha específica (Staff)
+      parameters:
+      - in: path
+        name: date
+        schema:
+          type: string
+        required: true
+      tags:
+      - Configuración de Días
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayConfigSummaryResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+    put:
+      operationId: day_configs_update
+      description: Sobrescribe cupo máximo o estado de apertura de una fecha específica.
+      summary: Actualizar configuración de una fecha específica (Staff)
+      parameters:
+      - in: path
+        name: date
+        schema:
+          type: string
+        required: true
+      tags:
+      - Configuración de Días
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayConfigSummaryResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/day-configs/weekday/{weekday}/:
+    get:
+      operationId: day_configs_weekday_retrieve
+      description: Obtiene la configuración semanal por defecto para un día (0=Lunes,
+        6=Domingo).
+      summary: Consultar configuración por defecto de día de la semana (Staff)
+      parameters:
+      - in: path
+        name: weekday
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Configuración de Días
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayConfigDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+    put:
+      operationId: day_configs_weekday_update
+      description: Actualiza el cupo o estado de apertura semanal por defecto para
+        un día (0=Lunes, 6=Domingo).
+      summary: Actualizar configuración por defecto de día de la semana (Staff)
+      parameters:
+      - in: path
+        name: weekday
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Configuración de Días
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DayConfigUpdate'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayConfigDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/health/:
+    get:
+      operationId: health_retrieve
+      description: Confirma que el servidor web y el proceso de la aplicación están
+        respondiendo.
+      summary: Verificación de vivacidad (Liveness)
+      tags:
+      - Salud
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusResponse'
+          description: ''
+  /api/v1/health/ready/:
+    get:
+      operationId: health_ready_retrieve
+      description: Verifica la conectividad con dependencias críticas (base de datos
+        y caché/Redis). Devuelve 200 OK si ambas responden; 503 con la lista de servicios
+        caídos si alguna falla.
+      summary: Verificación de disponibilidad (Readiness)
+      tags:
+      - Salud
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReadyResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReadyResponse'
+          description: ''
+  /api/v1/me/agenda/:
+    get:
+      operationId: me_agenda_list
+      description: Consulta las citas CONFIRMED del día con datos de contacto del
+        solicitante para el trabajador.
+      summary: Consultar agenda del trabajador
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        required: true
+      - in: query
+        name: worker_id
+        schema:
+          type: integer
+          nullable: true
+      tags:
+      - Agenda del Personal
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkerAgendaAppointment'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/waitlist/:
+    get:
+      operationId: waitlist_list
+      description: Consulta las citas en estado WAITLISTED de una fecha en orden FIFO
+        con posición absoluta.
+      summary: Listar lista de espera FIFO del día (Staff)
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        required: true
+      tags:
+      - Lista de Espera
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WaitlistEntry'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/workers/{id}/:
+    patch:
+      operationId: workers_partial_update
+      description: Cambia el estado 'is_active' de un trabajador revalidando citas
+        afectadas.
+      summary: Activar o desactivar trabajador (Staff)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Personal
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedWorkerPatch'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedWorkerPatch'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedWorkerPatch'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleChangeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/workers/{id}/exceptions/:
+    post:
+      operationId: workers_exceptions_create
+      description: Crea una ausencia o turno especial en una fecha revalidando citas
+        afectadas.
+      summary: Crear excepción de horario para trabajador
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Horarios y Excepciones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleExceptionCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ScheduleExceptionCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ScheduleExceptionCreate'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleChangeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/workers/{id}/exceptions/{exception_id}/:
+    delete:
+      operationId: workers_exceptions_destroy
+      description: Elimina una excepción de horario previa revalidando la agenda y
+        reasignando citas si aplica.
+      summary: Eliminar excepción de horario
+      parameters:
+      - in: path
+        name: exception_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Horarios y Excepciones
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleChangeResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/v1/workers/{id}/schedule/:
+    get:
+      operationId: workers_schedule_retrieve
+      description: Consulta los turnos y descansos semanales de un trabajador junto
+        a sus excepciones futuras.
+      summary: Consultar horario semanal de trabajador
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Horarios y Excepciones
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerScheduleDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+    put:
+      operationId: workers_schedule_update
+      description: Reemplaza el horario semanal revalidando citas futuras y admitiendo
+        dry_run y confirmación.
+      summary: Actualizar horario semanal de trabajador
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Horarios y Excepciones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkScheduleSet'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WorkScheduleSet'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WorkScheduleSet'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleChangeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+components:
+  schemas:
+    AppointmentBookingResponse:
+      type: object
+      description: Appointment response serializer for booking and reschedule with
+        one-time manage_token.
+      properties:
+        manage_token:
+          type: string
+          nullable: true
+          readOnly: true
+        requester:
+          $ref: '#/components/schemas/RequesterPublicDetail'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          title: Estado
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        date:
+          type: string
+          format: date
+          title: Fecha
+        start_at:
+          type: string
+          format: date-time
+          title: Inicio
+        end_at:
+          type: string
+          format: date-time
+          title: Fin
+        worker_name:
+          type: string
+          nullable: true
+          readOnly: true
+        waitlist_position:
+          type: integer
+          nullable: true
+          readOnly: true
+        reschedule_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          title: Número de reprogramaciones
+        reschedules_remaining:
+          type: integer
+          readOnly: true
+        can_cancel_until:
+          type: string
+          nullable: true
+          readOnly: true
+        rescheduled_from:
+          type: string
+          format: uuid
+          nullable: true
+        rescheduled_to:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - can_cancel_until
+      - date
+      - end_at
+      - id
+      - manage_token
+      - requester
+      - rescheduled_from
+      - rescheduled_to
+      - reschedules_remaining
+      - service
+      - start_at
+      - status
+      - waitlist_position
+      - worker_name
+    AppointmentCancel:
+      type: object
+      description: Input serializer for appointment cancellation.
+      properties:
+        reason:
+          type: string
+          default: ''
+          maxLength: 500
+        force:
+          type: boolean
+          default: false
+    AppointmentCreate:
+      type: object
+      description: Input serializer for creating/booking a new appointment.
+      properties:
+        requester:
+          $ref: '#/components/schemas/RequesterInput'
+        service:
+          type: integer
+          minimum: 1
+        start_at:
+          type: string
+          format: date-time
+      required:
+      - requester
+      - service
+      - start_at
+    AppointmentReschedule:
+      type: object
+      description: Input serializer for appointment rescheduling.
+      properties:
+        start_at:
+          type: string
+          format: date-time
+        allow_waitlist:
+          type: boolean
+          default: false
+        force:
+          type: boolean
+          default: false
+      required:
+      - start_at
+    CodeEnum:
+      enum:
+      - domain_error
+      - day_closed
+      - quota_exceeded
+      - no_worker_available
+      - cancellation_not_allowed
+      - reschedule_limit_reached
+      - invalid_state_transition
+      - invalid_duration
+      - schedule_conflict
+      - invalid_slot
+      - outside_booking_window
+      - requester_limit_reached
+      - waitlist_full
+      - appointment_not_found
+      - service_not_found
+      - worker_not_found
+      - SCHEDULE_CHANGE_REQUIRES_CONFIRMATION
+      - NOT_AUTHENTICATED
+      - INVALID_TOKEN
+      - INVALID_CREDENTIALS
+      - LOGIN_LOCKED
+      - FORBIDDEN
+      - THROTTLED
+      - APPOINTMENT_NOT_FOUND
+      - EXCEPTION_NOT_FOUND
+      - INVALID_PARAMETERS
+      - VALIDATION_ERROR
+      - SERVICE_UNAVAILABLE
+      type: string
+      description: |-
+        * `domain_error` - domain_error
+        * `day_closed` - day_closed
+        * `quota_exceeded` - quota_exceeded
+        * `no_worker_available` - no_worker_available
+        * `cancellation_not_allowed` - cancellation_not_allowed
+        * `reschedule_limit_reached` - reschedule_limit_reached
+        * `invalid_state_transition` - invalid_state_transition
+        * `invalid_duration` - invalid_duration
+        * `schedule_conflict` - schedule_conflict
+        * `invalid_slot` - invalid_slot
+        * `outside_booking_window` - outside_booking_window
+        * `requester_limit_reached` - requester_limit_reached
+        * `waitlist_full` - waitlist_full
+        * `appointment_not_found` - appointment_not_found
+        * `service_not_found` - service_not_found
+        * `worker_not_found` - worker_not_found
+        * `SCHEDULE_CHANGE_REQUIRES_CONFIRMATION` - SCHEDULE_CHANGE_REQUIRES_CONFIRMATION
+        * `NOT_AUTHENTICATED` - NOT_AUTHENTICATED
+        * `INVALID_TOKEN` - INVALID_TOKEN
+        * `INVALID_CREDENTIALS` - INVALID_CREDENTIALS
+        * `LOGIN_LOCKED` - LOGIN_LOCKED
+        * `FORBIDDEN` - FORBIDDEN
+        * `THROTTLED` - THROTTLED
+        * `APPOINTMENT_NOT_FOUND` - APPOINTMENT_NOT_FOUND
+        * `EXCEPTION_NOT_FOUND` - EXCEPTION_NOT_FOUND
+        * `INVALID_PARAMETERS` - INVALID_PARAMETERS
+        * `VALIDATION_ERROR` - VALIDATION_ERROR
+        * `SERVICE_UNAVAILABLE` - SERVICE_UNAVAILABLE
+    DayAvailability:
+      type: object
+      description: Response serializer for day availability.
+      properties:
+        date:
+          type: string
+          format: date
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        is_open:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        effective_quota:
+          type: integer
+        remaining_quota:
+          type: integer
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Slot'
+      required:
+      - date
+      - effective_quota
+      - is_open
+      - reason
+      - remaining_quota
+      - service
+      - slots
+    DayConfigDetail:
+      type: object
+      description: Serializer for DayConfig model.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        weekday:
+          nullable: true
+          title: Día de la semana (default)
+          minimum: 0
+          maximum: 9223372036854775807
+          oneOf:
+          - $ref: '#/components/schemas/WeekdayEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        date:
+          type: string
+          format: date
+          nullable: true
+          title: Fecha específica (override)
+        max_appointments:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Cupo máximo de citas
+          description: Dejar vacío para usar únicamente la capacidad calculada del
+            personal. 0 es válido.
+        is_open:
+          type: boolean
+          title: Abierto para citas
+        note:
+          type: string
+          title: Nota / descripción
+          maxLength: 255
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Actualizado el
+      required:
+      - id
+      - updated_at
+    DayConfigSummaryResponse:
+      type: object
+      description: Response serializer for DayConfig and capacity metrics summary.
+      properties:
+        date:
+          type: string
+          format: date
+        day_config:
+          $ref: '#/components/schemas/DayConfigDetail'
+        is_open:
+          type: boolean
+        effective_quota:
+          type: integer
+          nullable: true
+        quota_consumed:
+          type: integer
+        active_count:
+          type: integer
+        is_over_quota:
+          type: boolean
+        active_appointments_on_closed_day:
+          type: integer
+          default: 0
+      required:
+      - active_count
+      - date
+      - day_config
+      - effective_quota
+      - is_open
+      - is_over_quota
+      - quota_consumed
+    DayConfigUpdate:
+      type: object
+      description: Input serializer for updating DayConfig date or weekday defaults.
+      properties:
+        max_appointments:
+          type: integer
+          minimum: 0
+          nullable: true
+        is_open:
+          type: boolean
+        note:
+          type: string
+          default: ''
+          maxLength: 255
+      required:
+      - is_open
+    ErrorResponse:
+      type: object
+      description: Standardized error response payload.
+      properties:
+        code:
+          allOf:
+          - $ref: '#/components/schemas/CodeEnum'
+          description: |-
+            Código único de error de dominio u operación.
+
+            * `domain_error` - domain_error
+            * `day_closed` - day_closed
+            * `quota_exceeded` - quota_exceeded
+            * `no_worker_available` - no_worker_available
+            * `cancellation_not_allowed` - cancellation_not_allowed
+            * `reschedule_limit_reached` - reschedule_limit_reached
+            * `invalid_state_transition` - invalid_state_transition
+            * `invalid_duration` - invalid_duration
+            * `schedule_conflict` - schedule_conflict
+            * `invalid_slot` - invalid_slot
+            * `outside_booking_window` - outside_booking_window
+            * `requester_limit_reached` - requester_limit_reached
+            * `waitlist_full` - waitlist_full
+            * `appointment_not_found` - appointment_not_found
+            * `service_not_found` - service_not_found
+            * `worker_not_found` - worker_not_found
+            * `SCHEDULE_CHANGE_REQUIRES_CONFIRMATION` - SCHEDULE_CHANGE_REQUIRES_CONFIRMATION
+            * `NOT_AUTHENTICATED` - NOT_AUTHENTICATED
+            * `INVALID_TOKEN` - INVALID_TOKEN
+            * `INVALID_CREDENTIALS` - INVALID_CREDENTIALS
+            * `LOGIN_LOCKED` - LOGIN_LOCKED
+            * `FORBIDDEN` - FORBIDDEN
+            * `THROTTLED` - THROTTLED
+            * `APPOINTMENT_NOT_FOUND` - APPOINTMENT_NOT_FOUND
+            * `EXCEPTION_NOT_FOUND` - EXCEPTION_NOT_FOUND
+            * `INVALID_PARAMETERS` - INVALID_PARAMETERS
+            * `VALIDATION_ERROR` - VALIDATION_ERROR
+            * `SERVICE_UNAVAILABLE` - SERVICE_UNAVAILABLE
+        detail:
+          type: string
+          description: Mensaje explicativo para el usuario.
+        impact:
+          type: object
+          additionalProperties: {}
+          description: Desglose del impacto de cambios de horario cuando se requiere
+            confirmación.
+        errors:
+          type: object
+          additionalProperties: {}
+          description: Detalles de validación de campos específicos si aplica.
+      required:
+      - code
+      - detail
+    HealthReadyResponse:
+      type: object
+      description: Health check readiness response payload.
+      properties:
+        status:
+          type: string
+          description: Estado del servicio ('ok' o 'unavailable').
+        failing:
+          type: array
+          items:
+            type: string
+          description: Lista de componentes no disponibles (ej. 'database', 'cache').
+      required:
+      - status
+    HealthStatusResponse:
+      type: object
+      description: Liveness response payload.
+      properties:
+        status:
+          type: string
+          description: Estado del proceso ('ok').
+      required:
+      - status
+    KindEnum:
+      enum:
+      - ABSENCE
+      - SPECIAL_HOURS
+      type: string
+      description: |-
+        * `ABSENCE` - Ausencia
+        * `SPECIAL_HOURS` - Horario especial
+    Login:
+      type: object
+      description: Input serializer for user login.
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - password
+      - username
+    LoginResponse:
+      type: object
+      description: Output serializer for successful user login.
+      properties:
+        access:
+          type: string
+          description: Token de acceso JWT.
+        refresh:
+          type: string
+          description: Token de refresco JWT.
+      required:
+      - access
+      - refresh
+    Logout:
+      type: object
+      description: Input serializer for JWT logout / token revocation.
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
+    MeResponse:
+      type: object
+      description: Output serializer for current authenticated user profile.
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        role:
+          type: string
+        worker_id:
+          type: integer
+          nullable: true
+      required:
+      - id
+      - role
+      - username
+      - worker_id
+    NullEnum:
+      enum:
+      - null
+    PatchedWorkerPatch:
+      type: object
+      description: Input serializer for updating a worker's active status.
+      properties:
+        is_active:
+          type: boolean
+        confirm:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+    RequesterDetail:
+      type: object
+      description: Staff full requester detail serializer with all contact information.
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+      - email
+      - full_name
+      - id
+      - phone
+    RequesterInput:
+      type: object
+      description: Input serializer for requester contact details in appointment booking.
+      properties:
+        full_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          default: ''
+        email:
+          oneOf:
+          - type: string
+            format: email
+            default: ''
+          - type: string
+            maxLength: 0
+      required:
+      - full_name
+    RequesterPublicDetail:
+      type: object
+      description: Public requester serializer with minimal personal data (no phone,
+        no email).
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+      required:
+      - full_name
+      - id
+    RequesterWorkerDetail:
+      type: object
+      description: Worker requester serializer with contact phone for appointment
+        fulfillment (no email).
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        phone:
+          type: string
+      required:
+      - full_name
+      - id
+      - phone
+    RotateTokenResponse:
+      type: object
+      description: Response serializer for rotating an appointment manage token.
+      properties:
+        appointment_id:
+          type: string
+          format: uuid
+        manage_token:
+          type: string
+      required:
+      - appointment_id
+      - manage_token
+    ScheduleChangeResponse:
+      type: object
+      description: Response serializer for worker schedule changes impact.
+      properties:
+        applied:
+          type: boolean
+          description: Indica si los cambios fueron aplicados en la base de datos.
+        impact:
+          type: object
+          additionalProperties: {}
+          description: Desglose del impacto sobre citas existentes.
+      required:
+      - applied
+      - impact
+    ScheduleExceptionCreate:
+      type: object
+      description: Input serializer for creating a schedule exception.
+      properties:
+        date:
+          type: string
+          format: date
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        start_time:
+          type: string
+          format: time
+          nullable: true
+        end_time:
+          type: string
+          format: time
+          nullable: true
+        break_start:
+          type: string
+          format: time
+          nullable: true
+        break_end:
+          type: string
+          format: time
+          nullable: true
+        reason:
+          type: string
+          default: ''
+          maxLength: 255
+        confirm:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+      required:
+      - date
+      - kind
+    ScheduleExceptionDetail:
+      type: object
+      description: Detail serializer for ScheduleException.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        date:
+          type: string
+          format: date
+          title: Fecha
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/KindEnum'
+          title: Tipo de excepción
+        start_time:
+          type: string
+          format: time
+          nullable: true
+          title: Hora de entrada
+        end_time:
+          type: string
+          format: time
+          nullable: true
+          title: Hora de salida
+        break_start:
+          type: string
+          format: time
+          nullable: true
+          title: Inicio de descanso
+        break_end:
+          type: string
+          format: time
+          nullable: true
+          title: Fin de descanso
+        reason:
+          type: string
+          title: Motivo
+          maxLength: 255
+      required:
+      - date
+      - id
+      - kind
+    ServiceSummary:
+      type: object
+      description: Serializer for service summary.
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        duration_minutes:
+          type: integer
+      required:
+      - duration_minutes
+      - id
+      - name
+    Slot:
+      type: object
+      description: Serializer for an available appointment slot.
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        free_workers:
+          type: integer
+      required:
+      - end
+      - free_workers
+      - start
+    StaffAppointmentDetail:
+      type: object
+      description: Full appointment detail serializer for staff with full requester
+        details.
+      properties:
+        requester:
+          $ref: '#/components/schemas/RequesterDetail'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          title: Estado
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        date:
+          type: string
+          format: date
+          title: Fecha
+        start_at:
+          type: string
+          format: date-time
+          title: Inicio
+        end_at:
+          type: string
+          format: date-time
+          title: Fin
+        worker_name:
+          type: string
+          nullable: true
+          readOnly: true
+        waitlist_position:
+          type: integer
+          nullable: true
+          readOnly: true
+        reschedule_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          title: Número de reprogramaciones
+        reschedules_remaining:
+          type: integer
+          readOnly: true
+        can_cancel_until:
+          type: string
+          nullable: true
+          readOnly: true
+        rescheduled_from:
+          type: string
+          format: uuid
+          nullable: true
+        rescheduled_to:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - can_cancel_until
+      - date
+      - end_at
+      - id
+      - requester
+      - rescheduled_from
+      - rescheduled_to
+      - reschedules_remaining
+      - service
+      - start_at
+      - status
+      - waitlist_position
+      - worker_name
+    StatusEnum:
+      enum:
+      - REQUESTED
+      - CONFIRMED
+      - WAITLISTED
+      - CANCELLED
+      - COMPLETED
+      - NO_SHOW
+      - RESCHEDULED
+      - EXPIRED
+      type: string
+      description: |-
+        * `REQUESTED` - Solicitada
+        * `CONFIRMED` - Confirmada
+        * `WAITLISTED` - En espera
+        * `CANCELLED` - Cancelada
+        * `COMPLETED` - Completada
+        * `NO_SHOW` - No presentado
+        * `RESCHEDULED` - Reprogramada
+        * `EXPIRED` - Expirada
+    TokenRefresh:
+      type: object
+      description: Input serializer for JWT token refresh.
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
+    TokenRefreshResponse:
+      type: object
+      description: Output serializer for successful token refresh.
+      properties:
+        access:
+          type: string
+          description: Nuevo token de acceso JWT.
+        refresh:
+          type: string
+          description: Nuevo token de refresco JWT si la rotación está activa.
+      required:
+      - access
+    WaitlistEntry:
+      type: object
+      description: Serializer for waitlist entry in list response.
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        requester_name:
+          type: string
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        start_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - position
+      - requester_name
+      - service
+      - start_at
+    WeekdayEnum:
+      enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      type: integer
+      description: |-
+        * `0` - Lunes
+        * `1` - Martes
+        * `2` - Miércoles
+        * `3` - Jueves
+        * `4` - Viernes
+        * `5` - Sábado
+        * `6` - Domingo
+    WorkScheduleDetail:
+      type: object
+      description: Detail serializer for WorkSchedule.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        weekday:
+          allOf:
+          - $ref: '#/components/schemas/WeekdayEnum'
+          title: Día de la semana
+          minimum: 0
+          maximum: 9223372036854775807
+        start_time:
+          type: string
+          format: time
+          title: Hora de entrada
+        end_time:
+          type: string
+          format: time
+          title: Hora de salida
+        break_start:
+          type: string
+          format: time
+          nullable: true
+          title: Inicio de descanso
+        break_end:
+          type: string
+          format: time
+          nullable: true
+          title: Fin de descanso
+      required:
+      - end_time
+      - id
+      - start_time
+      - weekday
+    WorkScheduleEntry:
+      type: object
+      description: Serializer for an individual weekly schedule entry.
+      properties:
+        weekday:
+          type: integer
+          maximum: 6
+          minimum: 0
+        start_time:
+          type: string
+          format: time
+        end_time:
+          type: string
+          format: time
+        break_start:
+          type: string
+          format: time
+          nullable: true
+        break_end:
+          type: string
+          format: time
+          nullable: true
+      required:
+      - end_time
+      - start_time
+      - weekday
+    WorkScheduleSet:
+      type: object
+      description: Input serializer for replacing a worker's full weekly work schedule.
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkScheduleEntry'
+        confirm:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+      required:
+      - entries
+    WorkerAgendaAppointment:
+      type: object
+      description: Serializer for appointments in a worker's daily agenda.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        start_at:
+          type: string
+          format: date-time
+          title: Inicio
+        end_at:
+          type: string
+          format: date-time
+          title: Fin
+        requester:
+          $ref: '#/components/schemas/RequesterWorkerDetail'
+      required:
+      - end_at
+      - id
+      - requester
+      - service
+      - start_at
+    WorkerAppointmentDetail:
+      type: object
+      description: Appointment detail serializer for assigned workers with requester
+        phone.
+      properties:
+        requester:
+          $ref: '#/components/schemas/RequesterWorkerDetail'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          title: Estado
+        service:
+          $ref: '#/components/schemas/ServiceSummary'
+        date:
+          type: string
+          format: date
+          title: Fecha
+        start_at:
+          type: string
+          format: date-time
+          title: Inicio
+        end_at:
+          type: string
+          format: date-time
+          title: Fin
+        worker_name:
+          type: string
+          nullable: true
+          readOnly: true
+        waitlist_position:
+          type: integer
+          nullable: true
+          readOnly: true
+        reschedule_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          title: Número de reprogramaciones
+        reschedules_remaining:
+          type: integer
+          readOnly: true
+        can_cancel_until:
+          type: string
+          nullable: true
+          readOnly: true
+        rescheduled_from:
+          type: string
+          format: uuid
+          nullable: true
+        rescheduled_to:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - can_cancel_until
+      - date
+      - end_at
+      - id
+      - requester
+      - rescheduled_from
+      - rescheduled_to
+      - reschedules_remaining
+      - service
+      - start_at
+      - status
+      - waitlist_position
+      - worker_name
+    WorkerScheduleDetail:
+      type: object
+      description: Response serializer for worker schedule including weekly entries
+        and exceptions.
+      properties:
+        worker:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        weekly_schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkScheduleDetail'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleExceptionDetail'
+      required:
+      - exceptions
+      - weekly_schedules
+      - worker
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Autenticación JWT para usuarios del sistema (Staff y Trabajadores).
+        Cabecera: ''Authorization: Bearer <access_token>''.'
+    ManageTokenAuth:
+      type: apiKey
+      in: header
+      name: X-Manage-Token
+      description: 'Token de gestión entregado al solicitante en la creación o reprogramación.
+        Cabecera: ''X-Manage-Token: <token>''.'

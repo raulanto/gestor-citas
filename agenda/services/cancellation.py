@@ -18,7 +18,6 @@ from agenda.exceptions import (
 from agenda.logging import log_event
 from agenda.models import Appointment
 from agenda.services.booking import BookingResult, create_appointment_in_lock
-
 from agenda.services.locks import day_advisory_lock, day_advisory_locks
 from agenda.services.transitions import transition
 from agenda.services.waitlist import process_waitlist

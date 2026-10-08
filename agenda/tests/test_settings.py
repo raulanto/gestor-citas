@@ -25,4 +25,6 @@ def test_rest_framework_settings():
         settings.REST_FRAMEWORK["EXCEPTION_HANDLER"]
         == "agenda.api.exception_handler.custom_exception_handler"
     )
-    assert settings.REST_FRAMEWORK["PAGE_SIZE"] == 20
+    assert settings.REST_FRAMEWORK["PAGE_SIZE"] == 25
+    assert settings.PAGINATION_DEFAULT_LIMIT == 25
+    assert settings.PAGINATION_MAX_LIMIT == 100

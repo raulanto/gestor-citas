@@ -3,24 +3,26 @@
 import datetime
 import uuid
 
-from django.core.paginator import Paginator
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from agenda.api.filters import AppointmentFilter
+from agenda.api.pagination import StandardLimitOffsetPagination
 from agenda.api.permissions import (
     IsAppointmentWorkerOrStaff,
     IsStaff,
     IsWorkerSelfOrStaff,
 )
 from agenda.api.roles import Role, get_user_role
+from agenda.api.schemas import ErrorResponseSerializer
 from agenda.api.serializers import (
     AppointmentBookingResponseSerializer,
     AppointmentCancelSerializer,
     AppointmentCreateSerializer,
-    AppointmentListQuerySerializer,
     AppointmentRescheduleSerializer,
     AvailabilityQuerySerializer,
     DayAvailabilitySerializer,
@@ -29,6 +31,7 @@ from agenda.api.serializers import (
     DayConfigUpdateSerializer,
     RequesterAppointmentDetailSerializer,
     RotateTokenResponseSerializer,
+    ScheduleChangeResponseSerializer,
     ScheduleExceptionCreateSerializer,
     StaffAppointmentDetailSerializer,
     WaitlistEntrySerializer,
@@ -40,16 +43,22 @@ from agenda.api.serializers import (
     WorkerScheduleDetailSerializer,
     WorkScheduleSetSerializer,
 )
+from agenda.api.throttling import (
+    AvailabilityRateThrottle,
+    BookingContactRateThrottle,
+    BookingHourRateThrottle,
+    BookingMinuteRateThrottle,
+    ManageRateThrottle,
+    UserRateThrottle,
+)
 from agenda.exceptions import ServiceNotFound, WorkerNotFound
-from agenda.models import DayConfig, ScheduleException, Service, Worker
+from agenda.models import Appointment, DayConfig, ScheduleException, Service, Worker
 from agenda.selectors import (
     get_appointment,
     get_day_availability,
     get_day_config_summary,
     get_worker_schedule,
     list_active_appointments,
-    list_appointments_queryset,
-    list_unserviceable_waitlist,
     list_waitlist,
     list_worker_agenda,
 )
@@ -77,20 +86,24 @@ def _get_manage_token_from_request(request: Request) -> str | None:
     return token.strip() if token else None
 
 
-class HealthCheckView(APIView):
-    """Health check endpoint confirming API availability."""
-
-    permission_classes = [AllowAny]
-
-    def get(self, request: Request, *args, **kwargs) -> Response:
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
-
 class AvailabilityView(APIView):
     """Query available appointment slots and daily capacity for a service on a given date."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AvailabilityRateThrottle]
 
+    @extend_schema(
+        summary="Consultar disponibilidad y cupos de un día",
+        description="Calcula los intervalos horarios libres y el cupo restante para un servicio en una fecha.",
+        parameters=[AvailabilityQuerySerializer],
+        responses={
+            200: DayAvailabilitySerializer,
+            400: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Disponibilidad"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         query_serializer = AvailabilityQuerySerializer(data=request.query_params)
         if not query_serializer.is_valid():
@@ -129,6 +142,83 @@ class AppointmentsView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get_throttles(self):
+        if self.request.method == "POST":
+            return [
+                BookingMinuteRateThrottle(),
+                BookingHourRateThrottle(),
+                BookingContactRateThrottle(),
+            ]
+        return [UserRateThrottle()]
+
+    @extend_schema(
+        summary="Listar citas con filtros y paginación (Staff)",
+        description=(
+            "Permite al personal Staff consultar y filtrar citas por fecha, rango de fechas "
+            "(hasta 92 días), estados múltiples, trabajador, servicio, inatendibles y ordenamiento."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="date",
+                type=datetime.date,
+                description="Filtrar por fecha exacta (YYYY-MM-DD).",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=datetime.date,
+                description="Fecha inicial del rango (YYYY-MM-DD).",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=datetime.date,
+                description="Fecha final del rango (YYYY-MM-DD, máximo 92 días).",
+            ),
+            OpenApiParameter(
+                name="status",
+                type=str,
+                many=True,
+                description="Estado(s) de la cita (ej. CONFIRMED, WAITLISTED).",
+            ),
+            OpenApiParameter(
+                name="worker",
+                type=int,
+                description="ID del trabajador asignado.",
+            ),
+            OpenApiParameter(
+                name="service",
+                type=int,
+                description="ID del servicio.",
+            ),
+            OpenApiParameter(
+                name="unserviceable",
+                type=bool,
+                description="Filtrar solo citas en espera inatendibles.",
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=str,
+                description="Ordenamiento: start_at, -start_at, created_at, -created_at.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                description="Número de resultados por página (default 25, max 100).",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=int,
+                description="Desplazamiento inicial para paginación.",
+            ),
+        ],
+        responses={
+            200: StaffAppointmentDetailSerializer(many=True),
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         role = get_user_role(request.user)
         if role == Role.ANONYMOUS:
@@ -142,49 +232,50 @@ class AppointmentsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        query_serializer = AppointmentListQuerySerializer(data=request.query_params)
-        if not query_serializer.is_valid():
+        queryset = (
+            Appointment.objects.all()
+            .select_related(
+                "requester",
+                "service",
+                "worker",
+                "worker__user",
+                "rescheduled_from",
+            )
+            .prefetch_related("rescheduled_children")
+        )
+
+        filterset = AppointmentFilter(request.query_params, queryset=queryset, request=request)
+        if not filterset.is_valid():
             return Response(
                 {
                     "code": "INVALID_PARAMETERS",
                     "detail": "Parámetros de consulta inválidos.",
-                    "errors": query_serializer.errors,
+                    "errors": filterset.errors,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        target_date = query_serializer.validated_data.get("date")
-        status_filter = query_serializer.validated_data.get("status")
-        unserviceable = query_serializer.validated_data.get("unserviceable", False)
+        paginator = StandardLimitOffsetPagination()
+        page = paginator.paginate_queryset(filterset.qs, request, view=self)
+        serializer = StaffAppointmentDetailSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
-        page_size = 50
-        page_num = int(request.query_params.get("page", 1))
-
-        if unserviceable:
-            appts = list_unserviceable_waitlist(from_date=target_date)
-            paginator = Paginator(appts, page_size)
-            page = paginator.get_page(page_num)
-            serializer = StaffAppointmentDetailSerializer(page.object_list, many=True)
-            return Response(
-                {
-                    "count": paginator.count,
-                    "results": serializer.data,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        qs = list_appointments_queryset(target_date=target_date, status_filter=status_filter)
-        paginator = Paginator(qs, page_size)
-        page = paginator.get_page(page_num)
-        serializer = StaffAppointmentDetailSerializer(page.object_list, many=True)
-        return Response(
-            {
-                "count": paginator.count,
-                "results": serializer.data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
+    @extend_schema(
+        summary="Solicitar nueva cita (Público)",
+        description=(
+            "Reserva una cita con asignación óptima de personal o colocación en lista de espera. "
+            "Devuelve un 'manage_token' de gestión única vez para que el solicitante administre su cita."
+        ),
+        request=AppointmentCreateSerializer,
+        responses={
+            201: AppointmentBookingResponseSerializer,
+            400: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         serializer = AppointmentCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -234,6 +325,26 @@ class AppointmentDetailView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get_throttles(self):
+        if self.request.user and self.request.user.is_authenticated:
+            return [UserRateThrottle()]
+        return [ManageRateThrottle()]
+
+    @extend_schema(
+        summary="Detalle de cita por UUID",
+        description=(
+            "Devuelve el detalle de la cita. El solicitante debe proveer 'X-Manage-Token'. "
+            "La exposición de datos personales se segrega por rol (mínima para solicitante, "
+            "operativa para trabajador, total para staff)."
+        ),
+        responses={
+            200: StaffAppointmentDetailSerializer,
+            401: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def get(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
         role = get_user_role(request.user)
@@ -266,6 +377,28 @@ class AppointmentCancelView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get_throttles(self):
+        if self.request.user and self.request.user.is_authenticated:
+            return [UserRateThrottle()]
+        return [ManageRateThrottle()]
+
+    @extend_schema(
+        summary="Cancelar cita",
+        description=(
+            "Cancela una cita liberando el horario y recalculando la lista de espera. "
+            "El solicitante requiere 'X-Manage-Token'. Staff puede usar 'force=true'."
+        ),
+        request=AppointmentCancelSerializer,
+        responses={
+            200: StaffAppointmentDetailSerializer,
+            400: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         role = get_user_role(request.user)
         is_staff = role == Role.STAFF
@@ -335,6 +468,28 @@ class AppointmentRescheduleView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get_throttles(self):
+        if self.request.user and self.request.user.is_authenticated:
+            return [UserRateThrottle()]
+        return [ManageRateThrottle()]
+
+    @extend_schema(
+        summary="Reprogramar cita",
+        description=(
+            "Reprograma una cita a un nuevo horario atómicamente. "
+            "Devuelve un nuevo 'manage_token' para la nueva cita."
+        ),
+        request=AppointmentRescheduleSerializer,
+        responses={
+            201: AppointmentBookingResponseSerializer,
+            400: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         role = get_user_role(request.user)
         is_staff = role == Role.STAFF
@@ -402,7 +557,22 @@ class AppointmentCompleteView(APIView):
     """Mark a confirmed appointment as completed (Worker or Staff)."""
 
     permission_classes = [IsAppointmentWorkerOrStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Marcar cita como completada",
+        description="Transiciona una cita CONFIRMED a COMPLETADA (solo trabajador asignado o staff).",
+        request=None,
+        responses={
+            200: WorkerAppointmentDetailSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
         self.check_object_permissions(request, appointment)
@@ -423,7 +593,22 @@ class AppointmentNoShowView(APIView):
     """Mark a confirmed appointment as no-show (Worker or Staff)."""
 
     permission_classes = [IsAppointmentWorkerOrStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Marcar inasistencia de cita",
+        description="Transiciona una cita CONFIRMED a NO_SHOW (solo trabajador asignado o staff).",
+        request=None,
+        responses={
+            200: WorkerAppointmentDetailSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
         self.check_object_permissions(request, appointment)
@@ -444,7 +629,21 @@ class AppointmentRotateTokenView(APIView):
     """Rotate the manage token for an appointment (Staff only)."""
 
     permission_classes = [IsStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Rotar token de gestión de cita (Staff)",
+        description="Genera un nuevo token de gestión para la cita e invalida el anterior registrando auditoría.",
+        request=None,
+        responses={
+            200: RotateTokenResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Citas"],
+    )
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
         appointment = get_appointment(id)
         new_token = rotate_manage_token(appointment, actor=request.user)
@@ -458,7 +657,21 @@ class WaitlistView(APIView):
     """List waitlisted appointments for a specific date in FIFO order (Staff only)."""
 
     permission_classes = [IsStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Listar lista de espera FIFO del día (Staff)",
+        description="Consulta las citas en estado WAITLISTED de una fecha en orden FIFO con posición absoluta.",
+        parameters=[WaitlistQuerySerializer],
+        responses={
+            200: WaitlistEntrySerializer(many=True),
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Lista de Espera"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         query_serializer = WaitlistQuerySerializer(data=request.query_params)
         if not query_serializer.is_valid():
@@ -473,15 +686,32 @@ class WaitlistView(APIView):
 
         target_date = query_serializer.validated_data["date"]
         entries = list_waitlist(target_date)
-        serializer = WaitlistEntrySerializer(entries, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        paginator = StandardLimitOffsetPagination()
+        page = paginator.paginate_queryset(entries, request, view=self)
+        serializer = WaitlistEntrySerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class WorkerAgendaView(APIView):
     """Retrieve daily confirmed agenda for a worker."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Consultar agenda del trabajador",
+        description="Consulta las citas CONFIRMED del día con datos de contacto del solicitante para el trabajador.",
+        parameters=[WorkerAgendaQuerySerializer],
+        responses={
+            200: WorkerAgendaAppointmentSerializer(many=True),
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Agenda del Personal"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         query_serializer = WorkerAgendaQuerySerializer(data=request.query_params)
         if not query_serializer.is_valid():
@@ -544,7 +774,20 @@ class WorkerScheduleView(APIView):
     """View and replace a worker's weekly work schedule."""
 
     permission_classes = [IsWorkerSelfOrStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Consultar horario semanal de trabajador",
+        description="Consulta los turnos y descansos semanales de un trabajador junto a sus excepciones futuras.",
+        responses={
+            200: WorkerScheduleDetailSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Horarios y Excepciones"],
+    )
     def get(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
@@ -554,6 +797,21 @@ class WorkerScheduleView(APIView):
         serializer = WorkerScheduleDetailSerializer(schedule_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Actualizar horario semanal de trabajador",
+        description="Reemplaza el horario semanal revalidando citas futuras y admitiendo dry_run y confirmación.",
+        request=WorkScheduleSetSerializer,
+        responses={
+            200: ScheduleChangeResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Horarios y Excepciones"],
+    )
     def put(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
@@ -591,7 +849,23 @@ class WorkerExceptionsView(APIView):
     """Add a schedule exception for a worker."""
 
     permission_classes = [IsWorkerSelfOrStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Crear excepción de horario para trabajador",
+        description="Crea una ausencia o turno especial en una fecha revalidando citas afectadas.",
+        request=ScheduleExceptionCreateSerializer,
+        responses={
+            200: ScheduleChangeResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Horarios y Excepciones"],
+    )
     def post(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
@@ -628,7 +902,21 @@ class WorkerExceptionDetailView(APIView):
     """Delete a schedule exception for a worker."""
 
     permission_classes = [IsWorkerSelfOrStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Eliminar excepción de horario",
+        description="Elimina una excepción de horario previa revalidando la agenda y reasignando citas si aplica.",
+        responses={
+            200: ScheduleChangeResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Horarios y Excepciones"],
+    )
     def delete(self, request: Request, id: int, exception_id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
@@ -664,7 +952,23 @@ class WorkerDetailView(APIView):
     """Update a worker's active status (Staff only)."""
 
     permission_classes = [IsStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Activar o desactivar trabajador (Staff)",
+        description="Cambia el estado 'is_active' de un trabajador revalidando citas afectadas.",
+        request=WorkerPatchSerializer,
+        responses={
+            200: ScheduleChangeResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+            409: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Personal"],
+    )
     def patch(self, request: Request, id: int, *args, **kwargs) -> Response:
         worker = Worker.objects.filter(id=id).first()
         if worker is None:
@@ -702,6 +1006,7 @@ class DayConfigDateView(APIView):
     """Query or update configuration for a specific date (Staff only)."""
 
     permission_classes = [IsStaff]
+    throttle_classes = [UserRateThrottle]
 
     def _parse_date(self, date_str: str) -> datetime.date | None:
         try:
@@ -709,6 +1014,18 @@ class DayConfigDateView(APIView):
         except ValueError:
             return None
 
+    @extend_schema(
+        summary="Consultar configuración de una fecha específica (Staff)",
+        description="Obtiene el cupo configurado, estado de apertura y métricas del día.",
+        responses={
+            200: DayConfigSummaryResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Configuración de Días"],
+    )
     def get(self, request: Request, date: str, *args, **kwargs) -> Response:
         target_date = self._parse_date(date)
         if target_date is None:
@@ -724,6 +1041,19 @@ class DayConfigDateView(APIView):
         serializer = DayConfigSummaryResponseSerializer(summary)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Actualizar configuración de una fecha específica (Staff)",
+        description="Sobrescribe cupo máximo o estado de apertura de una fecha específica.",
+        request=DayConfigUpdateSerializer,
+        responses={
+            200: DayConfigSummaryResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Configuración de Días"],
+    )
     def put(self, request: Request, date: str, *args, **kwargs) -> Response:
         target_date = self._parse_date(date)
         if target_date is None:
@@ -774,7 +1104,20 @@ class DayConfigWeekdayView(APIView):
     """Query or update default weekday configuration (Staff only)."""
 
     permission_classes = [IsStaff]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Consultar configuración por defecto de día de la semana (Staff)",
+        description="Obtiene la configuración semanal por defecto para un día (0=Lunes, 6=Domingo).",
+        responses={
+            200: DayConfigDetailSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Configuración de Días"],
+    )
     def get(self, request: Request, weekday: int, *args, **kwargs) -> Response:
         if weekday < 0 or weekday > 6:
             return Response(
@@ -798,6 +1141,19 @@ class DayConfigWeekdayView(APIView):
         serializer = DayConfigDetailSerializer(day_config)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Actualizar configuración por defecto de día de la semana (Staff)",
+        description="Actualiza el cupo o estado de apertura semanal por defecto para un día (0=Lunes, 6=Domingo).",
+        request=DayConfigUpdateSerializer,
+        responses={
+            200: DayConfigDetailSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Configuración de Días"],
+    )
     def put(self, request: Request, weekday: int, *args, **kwargs) -> Response:
         if weekday < 0 or weekday > 6:
             return Response(

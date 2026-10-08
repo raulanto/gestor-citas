@@ -12,13 +12,17 @@ from agenda.services.manage_token import verify_manage_token
 PUBLIC_ENDPOINTS_WHITELIST = frozenset(
     {
         "health",
-        "api:availability",
-        "api:appointments-list-create",  # Only POST is public
-        "api:auth-token",
-        "api:auth-token-refresh",
-        "api:auth-logout",
+        "health_ready",
+        "availability",
+        "appointments",  # Only POST is public
+        "auth_token",
+        "auth_token_refresh",
+        "auth_logout",
+        "schema",
+        "swagger_ui",
     }
 )
+
 
 
 class IsStaff(BasePermission):

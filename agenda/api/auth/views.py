@@ -1,9 +1,12 @@
+"""Authentication API views for JWT token issuing, refresh, revocation, and profile."""
+
 import hashlib
 import time
 
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.core.cache import cache
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -13,12 +16,16 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from agenda.api.auth.serializers import (
+    LoginResponseSerializer,
     LoginSerializer,
     LogoutSerializer,
     MeResponseSerializer,
+    TokenRefreshResponseSerializer,
     TokenRefreshSerializer,
 )
 from agenda.api.roles import Role, get_user_role
+from agenda.api.schemas import ErrorResponseSerializer
+from agenda.api.throttling import AuthRateThrottle, UserRateThrottle
 from agenda.logging import log_event
 
 
@@ -38,7 +45,23 @@ class LoginView(APIView):
     """Authenticate staff and workers with username and password, issuing JWT tokens."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
+    @extend_schema(
+        summary="Iniciar sesión (Obtener tokens JWT)",
+        description=(
+            "Autentica usuarios con usuario y contraseña. Devuelve tokens de acceso y refresco. "
+            "Tras 5 intentos fallidos para un mismo usuario, se bloquea por 15 minutos."
+        ),
+        request=LoginSerializer,
+        responses={
+            200: LoginResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Autenticación"],
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         serializer = LoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -106,7 +129,6 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-
         cache.delete(attempts_key)
         cache.delete(lockout_key)
 
@@ -124,7 +146,20 @@ class TokenRefreshCustomView(APIView):
     """Refresh JWT access token with rotation and blacklisting."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
+    @extend_schema(
+        summary="Refrescar token de acceso",
+        description="Genera un nuevo token de acceso a partir de un token de refresco válido con rotación.",
+        request=TokenRefreshSerializer,
+        responses={
+            200: TokenRefreshResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Autenticación"],
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         serializer = TokenRefreshSerializer(data=request.data)
         if not serializer.is_valid():
@@ -169,7 +204,19 @@ class LogoutView(APIView):
     """Revoke refresh token by adding it to the blacklist."""
 
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
+    @extend_schema(
+        summary="Cerrar sesión (Invalidar token de refresco)",
+        description="Revoca el token de refresco agregándolo a la lista negra (blacklist).",
+        request=LogoutSerializer,
+        responses={
+            204: None,
+            400: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Autenticación"],
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         serializer = LogoutSerializer(data=request.data)
         if not serializer.is_valid():
@@ -196,7 +243,18 @@ class MeView(APIView):
     """Retrieve current authenticated user information and effective role."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
 
+    @extend_schema(
+        summary="Perfil del usuario autenticado",
+        description="Retorna el identificador, nombre de usuario, rol efectivo y worker_id vinculado.",
+        responses={
+            200: MeResponseSerializer,
+            401: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+        tags=["Autenticación"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         user = request.user
         role = get_user_role(user)

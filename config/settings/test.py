@@ -24,3 +24,6 @@ CACHES = {
         "LOCATION": "test-cache",
     }
 }
+
+THROTTLING_ENABLED = False
+

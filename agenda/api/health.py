@@ -2,11 +2,20 @@
 
 from django.core.cache import cache
 from django.db import connection
-from rest_framework import status
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from agenda.api.schemas import HealthReadyResponseSerializer
+
+
+class HealthStatusResponseSerializer(serializers.Serializer):
+    """Liveness response payload."""
+
+    status = serializers.CharField(help_text="Estado del proceso ('ok').")
 
 
 class HealthCheckView(APIView):
@@ -15,6 +24,14 @@ class HealthCheckView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = []
 
+    @extend_schema(
+        summary="Verificación de vivacidad (Liveness)",
+        description=(
+            "Confirma que el servidor web y el proceso de la aplicación están respondiendo."
+        ),
+        responses={200: HealthStatusResponseSerializer},
+        tags=["Salud"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
@@ -25,6 +42,19 @@ class HealthReadyView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = []
 
+    @extend_schema(
+        summary="Verificación de disponibilidad (Readiness)",
+        description=(
+            "Verifica la conectividad con dependencias críticas (base de datos y caché/Redis). "
+            "Devuelve 200 OK si ambas responden; 503 con la lista de servicios caídos "
+            "si alguna falla."
+        ),
+        responses={
+            200: HealthReadyResponseSerializer,
+            503: HealthReadyResponseSerializer,
+        },
+        tags=["Salud"],
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         failing: list[str] = []
 

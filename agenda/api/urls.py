@@ -1,8 +1,11 @@
 """URL configuration for agenda API."""
 
+from django.conf import settings
 from django.urls import path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from agenda.api.auth.views import LoginView, LogoutView, MeView, TokenRefreshCustomView
+from agenda.api.health import HealthCheckView, HealthReadyView
 from agenda.api.views import (
     AppointmentCancelView,
     AppointmentCompleteView,
@@ -14,7 +17,6 @@ from agenda.api.views import (
     AvailabilityView,
     DayConfigDateView,
     DayConfigWeekdayView,
-    HealthCheckView,
     WaitlistView,
     WorkerAgendaView,
     WorkerDetailView,
@@ -28,6 +30,7 @@ app_name = "agenda"
 urlpatterns = [
     # Public & Health
     path("health/", HealthCheckView.as_view(), name="health"),
+    path("health/ready/", HealthReadyView.as_view(), name="health_ready"),
     path("availability/", AvailabilityView.as_view(), name="availability"),
     # Auth endpoints
     path("auth/token/", LoginView.as_view(), name="auth_token"),
@@ -82,3 +85,14 @@ urlpatterns = [
         name="day_config_weekday",
     ),
 ]
+
+if getattr(settings, "API_DOCS_ENABLED", True):
+    urlpatterns += [
+        path("schema/", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "docs/",
+            SpectacularSwaggerView.as_view(url_name="agenda:schema"),
+            name="swagger_ui",
+        ),
+    ]
+

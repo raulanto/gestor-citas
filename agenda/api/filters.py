@@ -28,7 +28,6 @@ class AppointmentFilter(django_filters.FilterSet):
             ("start_at", "start_at"),
             ("created_at", "created_at"),
         ),
-        default="start_at",
     )
 
     class Meta:
@@ -84,4 +83,7 @@ class AppointmentFilter(django_filters.FilterSet):
             if (d_to - d_from).days > 92:
                 raise ValidationError("El rango de fechas no puede exceder 92 días.")
 
-        return super().qs
+        qs = super().qs
+        if not ordering_param:
+            qs = qs.order_by("start_at")
+        return qs

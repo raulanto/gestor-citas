@@ -1,7 +1,7 @@
 """Structured logging context and domain event logging."""
 
-from contextvars import ContextVar
 import logging
+from contextvars import ContextVar
 from typing import Any
 
 # Context variables for request tracing

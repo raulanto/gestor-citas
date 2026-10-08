@@ -29,13 +29,17 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
+    "django_filters",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
     "agenda.apps.AgendaConfig",
 ]
 
 MIDDLEWARE = [
+    "agenda.middleware.RequestIDMiddleware",
+    "agenda.middleware.RequestLogMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -111,17 +115,46 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Throttling & Proxy Configuration
+THROTTLING_ENABLED = config("THROTTLING_ENABLED", default=True, cast=bool)
+TRUSTED_PROXIES_COUNT = config("TRUSTED_PROXIES_COUNT", default=0, cast=int)
+THROTTLE_AVAILABILITY = config("THROTTLE_AVAILABILITY", default="60/min")
+THROTTLE_BOOKING_MINUTE = config("THROTTLE_BOOKING_MINUTE", default="10/min")
+THROTTLE_BOOKING_HOUR = config("THROTTLE_BOOKING_HOUR", default="5/hour")
+THROTTLE_BOOKING_CONTACT = config("THROTTLE_BOOKING_CONTACT", default="3/hour")
+THROTTLE_MANAGE = config("THROTTLE_MANAGE", default="20/min")
+THROTTLE_AUTH = config("THROTTLE_AUTH", default="10/min")
+THROTTLE_USER = config("THROTTLE_USER", default="120/min")
+
+# Pagination Configuration
+PAGINATION_DEFAULT_LIMIT = 25
+PAGINATION_MAX_LIMIT = 100
+
 # Django REST Framework
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "agenda.api.exception_handler.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "agenda.api.auth.authentication.CustomJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20,
+    "DEFAULT_PAGINATION_CLASS": "agenda.api.pagination.StandardLimitOffsetPagination",
+    "PAGE_SIZE": PAGINATION_DEFAULT_LIMIT,
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "NUM_PROXIES": TRUSTED_PROXIES_COUNT,
+    "DEFAULT_THROTTLE_RATES": {
+        "availability": THROTTLE_AVAILABILITY,
+        "booking_minute": THROTTLE_BOOKING_MINUTE,
+        "booking_hour": THROTTLE_BOOKING_HOUR,
+        "booking_contact": THROTTLE_BOOKING_CONTACT,
+        "manage": THROTTLE_MANAGE,
+        "auth": THROTTLE_AUTH,
+        "user": THROTTLE_USER,
+    },
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
@@ -157,6 +190,51 @@ CACHES = {
     }
 }
 
+# Structured Logging Configuration
+LOG_LEVEL = config("LOG_LEVEL", default="INFO")
+LOG_SKIP_PATHS = ["/api/v1/health/", "/api/v1/health/ready/"]
+from config.logging import get_logging_config  # noqa: E402
+
+LOGGING = get_logging_config(LOG_LEVEL)
+
+# Retention Configuration
+PII_RETENTION_DAYS = config("PII_RETENTION_DAYS", default=730, cast=int)
+
+# OpenAPI & Documentation
+API_DOCS_ENABLED = config("API_DOCS_ENABLED", default=True, cast=bool)
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Agenda de Citas API",
+    "DESCRIPTION": (
+        "Microapp Django + DRF para gestión de citas, cupos por día, asignación "
+        "automática de personal, lista de espera FIFO y horarios configurables."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": (
+                    "Autenticación JWT para usuarios del sistema (Staff y Trabajadores). "
+                    "Cabecera: 'Authorization: Bearer <access_token>'."
+                ),
+            },
+            "ManageTokenAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Manage-Token",
+                "description": (
+                    "Token de gestión entregado al solicitante en la creación o reprogramación. "
+                    "Cabecera: 'X-Manage-Token: <token>'."
+                ),
+            },
+        },
+    },
+}
+
 # Business Rules / Domain Constants
 BOOKING_MIN_ADVANCE_HOURS = config("BOOKING_MIN_ADVANCE_HOURS", default=2, cast=int)
 BOOKING_MAX_ADVANCE_DAYS = config("BOOKING_MAX_ADVANCE_DAYS", default=60, cast=int)
@@ -178,3 +256,4 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": WAITLIST_SWEEP_MINUTES * 60,
     },
 }
+
