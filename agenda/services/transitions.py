@@ -35,7 +35,7 @@ def transition(
     if from_status == AppointmentStatus.CONFIRMED and to_status == AppointmentStatus.WAITLISTED:
         if not via_revalidation:
             raise InvalidStateTransition(
-                "La transición de confirmada a lista de espera solo está permitida mediante revalidación."
+                "La transición de confirmada a lista de espera solo se permite vía revalidación."
             )
 
     appointment.status = str(to_status)
@@ -72,7 +72,7 @@ def reassign_worker(
     """
     if appointment.status != AppointmentStatus.CONFIRMED:
         raise InvalidStateTransition(
-            f"Solo se puede reasignar trabajador en citas confirmadas, no en '{appointment.status}'."
+            f"Solo se reasigna trabajador en citas confirmadas, no en '{appointment.status}'."
         )
 
     appointment.worker = new_worker

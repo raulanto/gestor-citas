@@ -155,9 +155,7 @@ def test_disallowed_transitions_raise_invalid_state_transition(from_status, to_s
     assert exc_info.value.http_status == 409
     appointment.refresh_from_db()
     assert appointment.status == from_status
-    assert (
-        AppointmentEvent.objects.filter(appointment=appointment).count() == initial_events_count
-    )
+    assert AppointmentEvent.objects.filter(appointment=appointment).count() == initial_events_count
 
 
 def test_transition_guardian_no_direct_status_or_worker_mutation():
@@ -184,16 +182,17 @@ def test_transition_guardian_no_direct_status_or_worker_mutation():
             continue
 
         for node in ast.walk(tree):
-            # Check for: x.status = ... or x.worker = ... (excluding self in model definitions or forms)
+            # Check for: x.status = ... or x.worker = ...
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Attribute) and target.attr in ("status", "worker"):
-                        # Skip if it's a class field definition like worker = models.ForeignKey(...) or status = models.CharField(...)
+                        # Skip if it's a class field definition like worker = models.ForeignKey(...)
                         is_model_field = False
                         if isinstance(node.value, ast.Call) and isinstance(
                             node.value.func, ast.Attribute
                         ):
-                            if isinstance(node.value.func.value, ast.Name) and node.value.func.value.id == "models":
+                            func_val = node.value.func.value
+                            if isinstance(func_val, ast.Name) and func_val.id == "models":
                                 is_model_field = True
                         if not is_model_field:
                             violations.append(

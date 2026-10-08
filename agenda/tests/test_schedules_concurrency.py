@@ -78,9 +78,7 @@ def test_concurrent_booking_and_schedule_change(tz):
                     "break_end": None,
                 }
             ]
-            return set_weekly_schedule(
-                worker, new_entries, confirm=True, dry_run=False, now=now
-            )
+            return set_weekly_schedule(worker, new_entries, confirm=True, dry_run=False, now=now)
         except Exception:
             return None
         finally:

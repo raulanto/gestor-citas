@@ -6,7 +6,14 @@ from django.conf import settings
 from rest_framework import serializers
 
 from agenda.constants import AppointmentStatus
-from agenda.models import Appointment, DayConfig, ExceptionKind, ScheduleException, Worker, WorkSchedule
+from agenda.models import (
+    Appointment,
+    DayConfig,
+    ExceptionKind,
+    ScheduleException,
+    Worker,
+    WorkSchedule,
+)
 from agenda.selectors.waitlist import waitlist_position
 
 
@@ -303,7 +310,9 @@ class WorkScheduleSetSerializer(serializers.Serializer):
     def validate_entries(self, entries: list[dict]) -> list[dict]:
         weekdays = [e["weekday"] for e in entries]
         if len(weekdays) != len(set(weekdays)):
-            raise serializers.ValidationError("No puede haber más de una entrada por día de la semana.")
+            raise serializers.ValidationError(
+                "No puede haber más de una entrada por día de la semana."
+            )
         return entries
 
 

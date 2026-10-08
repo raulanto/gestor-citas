@@ -14,12 +14,11 @@ from django.db import transaction
 
 from agenda.admin import ScheduleExceptionAdmin, WorkerAdmin, WorkScheduleAdmin
 from agenda.constants import AppointmentStatus
-from agenda.models import ExceptionKind, ScheduleException, Weekday, Worker, WorkSchedule
+from agenda.models import ExceptionKind, ScheduleException, Worker, WorkSchedule
 from agenda.services.schedules import revalidate_all
 from agenda.tasks import waitlist_maintenance_task
 from agenda.tests.factories import (
     AppointmentFactory,
-    DayConfigFactory,
     ScheduleExceptionFactory,
     ServiceFactory,
     WorkerFactory,

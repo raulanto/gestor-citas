@@ -2,7 +2,7 @@
 
 import datetime
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -12,7 +12,6 @@ from django.utils import timezone
 
 from agenda.constants import AppointmentStatus, EventNote
 from agenda.exceptions import (
-    InvalidSlot,
     ScheduleChangeNeedsConfirmation,
     WorkerNotFound,
 )
@@ -22,7 +21,6 @@ from agenda.models import (
     Worker,
     WorkSchedule,
 )
-from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.schedules import get_day_config_summary
 from agenda.selectors.workers import list_available_workers_on, resolve_worker_shift
 from agenda.services.assignment import pick_worker
@@ -93,7 +91,7 @@ def revalidate_worker(
     now: datetime.datetime | None = None,
     dates: list[datetime.date] | None = None,
 ) -> RevalidationResult:
-    """Revalidate all future confirmed appointments for a worker following schedule or status changes.
+    """Revalidate future confirmed appointments for a worker after schedule or status changes.
 
     Displaced appointments are first attempted to be reassigned to another available worker;
     if none are free, they transition to WAITLISTED preserving their creation timestamp.

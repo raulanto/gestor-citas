@@ -1,4 +1,4 @@
-"""Selectors for worker schedules, day configuration summaries, and unserviceable waitlist queries."""
+"""Selectors for worker schedules, day configuration summaries, and unserviceable waitlist."""
 
 import datetime
 from dataclasses import dataclass
@@ -45,7 +45,7 @@ def get_worker_schedule(worker: Worker) -> dict:
 
 
 def get_day_config_summary(target_date: datetime.date) -> DayConfigSummary:
-    """Calculate day configuration summary, effective quota for shortest service, and quota status."""
+    """Calculate day configuration summary, effective quota, and quota status."""
     day_config = resolve_day_config(target_date)
     min_service = Service.objects.filter(is_active=True).order_by("duration_minutes").first()
 
@@ -60,9 +60,7 @@ def get_day_config_summary(target_date: datetime.date) -> DayConfigSummary:
     else:
         eff_quota = day_config.max_appointments
 
-    quota_consumed = Appointment.objects.filter(
-        date=target_date, status__in=QUOTA_STATUSES
-    ).count()
+    quota_consumed = Appointment.objects.filter(date=target_date, status__in=QUOTA_STATUSES).count()
     active_count = Appointment.objects.filter(date=target_date, status__in=ACTIVE_STATUSES).count()
 
     is_over = eff_quota is not None and quota_consumed > eff_quota
@@ -82,7 +80,7 @@ def list_unserviceable_waitlist(
     from_date: datetime.date | None = None,
     now: datetime.datetime | None = None,
 ) -> list[Appointment]:
-    """Find all future waitlisted appointments whose slot cannot be served by any worker's shifts."""
+    """Find all future waitlisted appointments whose slot cannot be served by any worker."""
     tz = ZoneInfo(settings.TIME_ZONE)
     if now is None:
         now = timezone.now()

@@ -144,7 +144,10 @@ class WorkerNotFound(DomainError):
 
 
 class ScheduleChangeNeedsConfirmation(DomainError):
-    """Raised when a schedule change impacts existing appointments and requires explicit confirmation."""
+    """Raised when a schedule change impacts existing appointments.
+
+    Requires explicit confirmation to apply.
+    """
 
     code = "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION"
     detail = "El cambio de horario afecta citas existentes y requiere confirmación."

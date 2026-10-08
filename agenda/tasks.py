@@ -37,7 +37,7 @@ def process_waitlist_all_task() -> dict:
 
 @shared_task(name="agenda.tasks.waitlist_maintenance_task")
 def waitlist_maintenance_task() -> dict:
-    """Periodic maintenance: expire past waitlist, revalidate all worker shifts, promote waitlist."""
+    """Periodic maintenance: expire waitlist, revalidate shifts, promote waitlist."""
     expired_count = expire_waitlist()
     revalidation_results = revalidate_all()
     results = process_waitlist_all()

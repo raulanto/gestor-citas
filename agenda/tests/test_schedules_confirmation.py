@@ -8,7 +8,7 @@ from django.conf import settings
 
 from agenda.constants import AppointmentStatus
 from agenda.exceptions import ScheduleChangeNeedsConfirmation
-from agenda.models import Appointment, ExceptionKind, ScheduleException, WorkSchedule
+from agenda.models import ExceptionKind, ScheduleException, WorkSchedule
 from agenda.services.schedules import (
     add_exception,
     remove_exception,

@@ -618,7 +618,10 @@ class DayConfigWeekdayView(APIView):
     def get(self, request: Request, weekday: int, *args, **kwargs) -> Response:
         if weekday < 0 or weekday > 6:
             return Response(
-                {"code": "INVALID_PARAMETERS", "detail": "El día de la semana debe ser entre 0 y 6."},
+                {
+                    "code": "INVALID_PARAMETERS",
+                    "detail": "El día de la semana debe ser entre 0 y 6.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -638,7 +641,10 @@ class DayConfigWeekdayView(APIView):
     def put(self, request: Request, weekday: int, *args, **kwargs) -> Response:
         if weekday < 0 or weekday > 6:
             return Response(
-                {"code": "INVALID_PARAMETERS", "detail": "El día de la semana debe ser entre 0 y 6."},
+                {
+                    "code": "INVALID_PARAMETERS",
+                    "detail": "El día de la semana debe ser entre 0 y 6.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

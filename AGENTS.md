@@ -54,22 +54,35 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 6. **FIFO sin bloqueo de cabecera:** se procesa por `created_at, id`. Si la primera cita en espera no cabe en su horario solicitado, no bloquea a las siguientes que soliciten otros horarios libres.
 7. **Reprogramar** = crear la nueva cita pasando todas las validaciones y, solo si tiene éxito, marcar la anterior como `REPROGRAMADA` con `rescheduled_to`. Todo en una sola transacción.
 8. **Cancelar/reprogramar** respeta `CANCEL_MIN_HOURS` y `MAX_RESCHEDULES_PER_APPOINTMENT`.
-9. **Cambio de horario de un trabajador** revalida sus citas futuras: las que ya no caben se desasignan y pasan por asignación/espera.
-10. Cada cambio de estado escribe un `AppointmentEvent` (auditoría). No cambiar `status` directamente; usar services.
+9. **Cambio de horario del personal:** `revalidate_worker(worker_id, ...)` en `agenda/services/schedules.py` es el único punto de entrada para revalidar, desplazar y reasignar citas tras cambios de turno, excepciones o estado activo. Las citas desplazadas se intentan reasignar a otro trabajador libre con `reassign_worker()` o pasan a `WAITLISTED` con `transition(..., via_revalidation=True)` conservando su `created_at` original e ignorando `WAITLIST_MAX_PER_DAY`. Ninguna cita confirmada se cancela automáticamente.
+10. Cada cambio de estado escribe un `AppointmentEvent` (auditoría). No cambiar `status` ni `worker` directamente; usar services.
 
 ## Concurrencia e integridad
 
-- **Serialización por día:** Reservar y asignar dentro de `transaction.atomic()` tomando un lock consultivo de PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())` (helper centralizado en `agenda/services/locks.py`). Esto serializa reservas por día sin requerir filas preexistentes de `DayConfig`.
+- **Serialización por día:** Reservar y asignar dentro de `transaction.atomic()` tomando locks consultivos de PostgreSQL `pg_advisory_xact_lock(42, date.toordinal())` (helper centralizado en `agenda/services/locks.py`). Al operar sobre múltiples fechas (reprogramación o cambios de horario), los locks **siempre se adquieren en orden cronológico ascendente** (`day_advisory_locks`) para evitar interbloqueos.
 - **Red de seguridad en BD:** `ExclusionConstraint` de PostgreSQL (`tstzrange(start_at, end_at) &&` sobre `worker`) con `BtreeGistExtension` para impedir citas solapadas con trabajador asignado (`OCCUPYING_STATUSES`).
-- **El `status` solo cambia desde services:** Nunca mutar `status` o `worker` directamente en admin, vistas o señales. Cada transición escribe un `AppointmentEvent`.
+- **El `status` y `worker` solo cambian desde services:** Nunca mutar `status` o `worker` directamente en admin, vistas o señales. Cada transición escribe un `AppointmentEvent`.
 - **Ubicación de lógica clave:**
   - Estados y conjuntos (`QUOTA_STATUSES`, `OCCUPYING_STATUSES`, `ACTIVE_STATUSES`): en `agenda/constants.py`.
   - Asignación pura de personal (`pick_worker`): en `agenda/services/assignment.py`.
   - Reasignación y expiración de lista de espera (`process_waitlist`, `expire_waitlist`): en `agenda/services/waitlist.py`.
-  - Locks por día (`day_advisory_lock`): en `agenda/services/locks.py`.
+  - Revalidación por cambio de horario (`revalidate_worker`, `revalidate_all`): en `agenda/services/schedules.py`.
+  - Locks por día (`day_advisory_lock`, `day_advisory_locks`): en `agenda/services/locks.py`.
   - Identificación y normalización de solicitante (`get_or_create_requester`, `normalize_phone`): en `agenda/services/requesters.py`.
 - Constraints en BD cuando sea posible (únicos, checks de rango horario `start < end`).
 - Operaciones idempotentes en tareas Celery.
+
+## Matriz de permisos (Fase 6)
+
+| Acción / Endpoint | Staff (`is_staff=True`) | Trabajador autenticado (`Worker.user`) | Anónimo / Público |
+|---|---|---|---|
+| Consultar disponibilidad / Reservar | Sí | Sí | Sí |
+| `GET /api/v1/workers/{id}/schedule/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
+| `PUT /api/v1/workers/{id}/schedule/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
+| `POST/DELETE /api/v1/workers/{id}/exceptions/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
+| `PATCH /api/v1/workers/{id}/` (`is_active`) | Cualquier trabajador | No (403) | No (401/403) |
+| `GET/PUT /api/v1/day-configs/...` | Sí | No (403) | No (401/403) |
+| `GET /api/v1/appointments/?unserviceable=true` | Sí | No (403) | No (401/403) |
 
 ## Fechas y horas
 

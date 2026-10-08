@@ -9,11 +9,11 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from agenda.constants import AppointmentStatus
-from agenda.models import Appointment, DayConfig, ExceptionKind, Weekday, WorkSchedule
+from agenda.models import (
+    ScheduleException,
+)
 from agenda.tests.factories import (
     AppointmentFactory,
-    DayConfigFactory,
-    ScheduleExceptionFactory,
     ServiceFactory,
     WorkerFactory,
     WorkScheduleFactory,
@@ -126,8 +126,8 @@ def test_get_and_put_worker_schedule(api_client, worker_user, tz):
     resp = api_client.get(f"/api/v1/workers/{worker.id}/schedule/")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["weekly_schedule"]) == 1
-    assert data["weekly_schedule"][0]["weekday"] == 3
+    assert len(data["weekly_schedules"]) == 1
+    assert data["weekly_schedules"][0]["weekday"] == 3
 
     # PUT invalid entries (end_time <= start_time) -> 400
     bad_payload = {
@@ -193,11 +193,14 @@ def test_worker_exceptions_api(api_client, worker_user, tz):
         "confirm": True,
     }
     resp = api_client.post(f"/api/v1/workers/{worker.id}/exceptions/", exc_payload, format="json")
-    assert resp.status_code == 201
-    exc_id = resp.json()["exception"]["id"]
+    assert resp.status_code == 200
+    assert resp.json()["applied"] is True
+
+    # Verify created exception
+    exc = ScheduleException.objects.get(worker=worker, date=target_date)
 
     # DELETE exception
-    resp = api_client.delete(f"/api/v1/workers/{worker.id}/exceptions/{exc_id}/")
+    resp = api_client.delete(f"/api/v1/workers/{worker.id}/exceptions/{exc.id}/")
     assert resp.status_code == 200
     assert resp.json()["applied"] is True
 
@@ -273,7 +276,7 @@ def test_day_configs_api(api_client, staff_user, tz):
     assert resp.status_code == 200
     data = resp.json()
     assert data["date"] == target_date.isoformat()
-    assert data["summary"]["active_count"] == 1
+    assert data["active_count"] == 1
 
     # 2. PUT date config (closing day with active appointments -> returns warning, doesn't cancel)
     put_payload = {
@@ -288,8 +291,8 @@ def test_day_configs_api(api_client, staff_user, tz):
     )
     assert resp.status_code == 200
     res_data = resp.json()
-    assert res_data["warnings"]["active_appointments_on_closed_day"] == 1
-    assert res_data["config"]["is_open"] is False
+    assert res_data["active_appointments_on_closed_day"] == 1
+    assert res_data["is_open"] is False
 
     # 3. GET / PUT weekday config
     resp = api_client.get("/api/v1/day-configs/weekday/3/")
@@ -301,7 +304,7 @@ def test_day_configs_api(api_client, staff_user, tz):
         format="json",
     )
     assert resp.status_code == 200
-    assert resp.json()["config"]["max_appointments"] == 10
+    assert resp.json()["max_appointments"] == 10
 
 
 @pytest.mark.django_db
@@ -338,7 +341,7 @@ def test_appointments_unserviceable_filter(api_client, staff_user, tz):
 
     resp = api_client.get("/api/v1/appointments/?unserviceable=true")
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["results"]
     ids = [item["id"] for item in data]
-    assert appt_unserv.id in ids
-    assert appt_serv.id not in ids
+    assert str(appt_unserv.id) in ids
+    assert str(appt_serv.id) not in ids

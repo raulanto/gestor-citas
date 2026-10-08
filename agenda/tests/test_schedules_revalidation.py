@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from agenda.constants import AppointmentStatus, EventNote
 from agenda.models import Appointment, AppointmentEvent, ExceptionKind
 from agenda.selectors.schedules import list_unserviceable_waitlist
-from agenda.services.schedules import revalidate_all, revalidate_worker
+from agenda.services.schedules import revalidate_worker
 from agenda.tests.factories import (
     AppointmentFactory,
     DayConfigFactory,

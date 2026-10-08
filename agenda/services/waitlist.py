@@ -184,20 +184,20 @@ def expire_waitlist(now: datetime.datetime | None = None) -> int:
     return total_expired
 
 
+def _run_waitlist_processing() -> None:
+    from agenda.tasks import process_waitlist_all_task
+
+    try:
+        process_waitlist_all_task.delay()
+    except Exception:
+        process_waitlist_all()
+
+
 def schedule_waitlist_processing() -> None:
     """Schedule asynchronous waitlist processing on transaction commit."""
-    if getattr(connection, "_waitlist_processing_scheduled", False):
-        return
+    for item in getattr(connection, "run_on_commit", []):
+        func = item[1] if isinstance(item, tuple) and len(item) > 1 else None
+        if func is _run_waitlist_processing:
+            return
 
-    connection._waitlist_processing_scheduled = True
-
-    def _run() -> None:
-        connection._waitlist_processing_scheduled = False
-        from agenda.tasks import process_waitlist_all_task
-
-        try:
-            process_waitlist_all_task.delay()
-        except Exception:
-            process_waitlist_all()
-
-    transaction.on_commit(_run)
+    transaction.on_commit(_run_waitlist_processing)
