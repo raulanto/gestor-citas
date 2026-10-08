@@ -15,6 +15,7 @@ from agenda.tests.factories import (
     RequesterFactory,
     ServiceFactory,
     WorkerFactory,
+    create_appointment_with_token,
 )
 
 
@@ -188,7 +189,7 @@ def test_appointment_detail_waitlist_position(api_client, tz):
     worker = WorkerFactory()
 
     # Confirmed appointment
-    confirmed_appt = AppointmentFactory(
+    confirmed_appt, token1 = create_appointment_with_token(
         service=service,
         worker=worker,
         date=target_date,
@@ -198,7 +199,7 @@ def test_appointment_detail_waitlist_position(api_client, tz):
     )
 
     # Waitlisted appointment
-    waitlisted_appt = AppointmentFactory(
+    waitlisted_appt, token2 = create_appointment_with_token(
         service=service,
         worker=None,
         date=target_date,
@@ -208,11 +209,17 @@ def test_appointment_detail_waitlist_position(api_client, tz):
     )
 
     # Check confirmed appointment detail
-    resp_conf = api_client.get(f"/api/v1/appointments/{confirmed_appt.id}/")
+    resp_conf = api_client.get(
+        f"/api/v1/appointments/{confirmed_appt.id}/",
+        HTTP_X_MANAGE_TOKEN=token1,
+    )
     assert resp_conf.status_code == 200
     assert resp_conf.json()["waitlist_position"] is None
 
     # Check waitlisted appointment detail
-    resp_wait = api_client.get(f"/api/v1/appointments/{waitlisted_appt.id}/")
+    resp_wait = api_client.get(
+        f"/api/v1/appointments/{waitlisted_appt.id}/",
+        HTTP_X_MANAGE_TOKEN=token2,
+    )
     assert resp_wait.status_code == 200
     assert resp_wait.json()["waitlist_position"] == 1

@@ -29,7 +29,7 @@ def verify_manage_token(appointment: Appointment, raw: str | None) -> bool:
 
 
 def rotate_manage_token(appointment: Appointment, *, actor: Any = None) -> str:
-    """Rotate an appointment's management token, invalidating previous ones and logging an audit event."""
+    """Rotate an appointment's management token and record an audit event."""
     new_raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(new_raw_token.encode("utf-8")).hexdigest()
 

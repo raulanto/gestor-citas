@@ -72,17 +72,46 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 - Constraints en BD cuando sea posible (únicos, checks de rango horario `start < end`).
 - Operaciones idempotentes en tareas Celery.
 
-## Matriz de permisos (Fase 6)
+## Autenticación, permisos y seguridad (Fase 7a)
 
-| Acción / Endpoint | Staff (`is_staff=True`) | Trabajador autenticado (`Worker.user`) | Anónimo / Público |
-|---|---|---|---|
-| Consultar disponibilidad / Reservar | Sí | Sí | Sí |
-| `GET /api/v1/workers/{id}/schedule/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
-| `PUT /api/v1/workers/{id}/schedule/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
-| `POST/DELETE /api/v1/workers/{id}/exceptions/` | Cualquier trabajador | Solo su propio perfil | No (401/403) |
-| `PATCH /api/v1/workers/{id}/` (`is_active`) | Cualquier trabajador | No (403) | No (401/403) |
-| `GET/PUT /api/v1/day-configs/...` | Sí | No (403) | No (401/403) |
-| `GET /api/v1/appointments/?unserviceable=true` | Sí | No (403) | No (401/403) |
+- **Denegar por defecto:** La API tiene `DEFAULT_PERMISSION_CLASSES = [IsAuthenticated]`. Toda vista nueva **debe declarar explícitamente sus permisos**. Las únicas vistas públicas declaran `permission_classes = [AllowAny]` y están registradas en la lista blanca `PUBLIC_ENDPOINTS_WHITELIST` (`agenda/api/permissions.py`), verificada automáticamente en tests.
+- **Roles efectivos (`agenda/api/roles.py`):**
+  - `STAFF`: `user.is_staff=True` o `user.is_superuser=True`. Control total.
+  - `WORKER`: `Worker.user` vinculado y `Worker.is_active=True`. Solo sus propios recursos.
+  - `NONE`: Usuario autenticado sin rol. Recibe `403 Forbidden` en endpoints protegidos.
+- **Permisos reutilizables (`agenda/api/permissions.py`):**
+  - `IsStaff`, `IsWorker`, `IsWorkerSelfOrStaff`, `IsAppointmentWorkerOrStaff`, `HasManageTokenOrStaff`.
+- **Token de gestión (`manage_token`):**
+  - Generado con `secrets.token_urlsafe(32)`.
+  - Solo se persiste su hash SHA-256 (`manage_token_hash`).
+  - **Nunca registrar en logs** (`logger`, `caplog`) ni devolver fuera de la respuesta directa de creación (`POST /appointments/`), reprogramación o rotación por staff (`POST /appointments/{id}/token/`).
+  - Sin token válido o con token incorrecto, las operaciones del solicitante devuelven **404 Not Found** (`APPOINTMENT_NOT_FOUND`) para prevenir enumeración.
+- **Protección de login:** Bloqueo tras 5 intentos fallidos (`LOGIN_MAX_FAILED_ATTEMPTS`) durante 15 min (`LOGIN_LOCKOUT_MINUTES`) en caché Redis/LocMem, respondiendo `429 LOGIN_LOCKED`. Mensaje uniforme `INVALID_CREDENTIALS` (401) para usuarios existentes o no.
+
+## Matriz de permisos (Fase 7a)
+
+| Acción / Endpoint | Público | Solicitante (`X-Manage-Token`) | Trabajador (`WORKER`) | Staff (`STAFF`) |
+|---|---|---|---|---|
+| `GET /api/v1/health/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/availability/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/appointments/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/appointments/{id}/` | ❌ (401/404) | ✅ Su cita | ✅ Solo sus citas asignadas | ✅ Todas |
+| `POST /api/v1/appointments/{id}/cancel/` | ❌ (401/404) | ✅ Su cita | ❌ (403) | ✅ (con `force`) |
+| `POST /api/v1/appointments/{id}/reschedule/` | ❌ (401/404) | ✅ Su cita | ❌ (403) | ✅ (con `force`) |
+| `POST /api/v1/appointments/{id}/complete/` | ❌ (401/404) | ❌ (403/404) | ✅ Solo sus citas asignadas | ✅ |
+| `POST /api/v1/appointments/{id}/no-show/` | ❌ (401/404) | ❌ (403/404) | ✅ Solo sus citas asignadas | ✅ |
+| `POST /api/v1/appointments/{id}/token/` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/appointments/` (`?unserviceable=true`) | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/waitlist/` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/me/agenda/?date=` | ❌ (401) | ❌ (403) | ✅ Su propia agenda | ✅ Con `worker_id` |
+| `GET/PUT /api/v1/workers/{id}/schedule/` | ❌ (401) | ❌ (403) | ✅ Solo su propio perfil | ✅ |
+| `POST/DELETE /api/v1/workers/{id}/exceptions/`| ❌ (401) | ❌ (403) | ✅ Solo su propio perfil | ✅ |
+| `PATCH /api/v1/workers/{id}/` (`is_active`) | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET/PUT /api/v1/day-configs/...` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `POST /api/v1/auth/token/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/auth/token/refresh/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/auth/logout/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/auth/me/` | ❌ (401) | ❌ (401) | ✅ | ✅ |
 
 ## Fechas y horas
 
@@ -100,11 +129,15 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 - Evitar N+1: `select_related` / `prefetch_related` en selectors.
 - API versionada bajo `/api/v1/`. Errores con formato `{"code": "...", "detail": "..."}`.
 
-## Tests
+## Tests y fábricas
 
-- `pytest` + `pytest-django`; fábricas con `factory_boy`.
+- `pytest` + `pytest-django`; fábricas con `factory_boy` (`agenda/tests/factories.py`):
+  - `StaffUserFactory`: crea usuario con `is_staff=True`.
+  - `WorkerUserFactory`: crea usuario y modelo `Worker` vinculado y activo.
+  - `SuperUserFactory`: crea superusuario.
+  - `create_appointment_with_token(service, requester, start_at, ...)`: helper que genera la cita y devuelve `(appointment, raw_token)`.
+- Fixtures en `conftest.py`: `auth_client_staff`, `auth_client_worker`, `jwt_token_for(user)`.
 - Todo service nuevo o modificado requiere tests de: caso feliz, cada excepción de dominio y bordes (cupo exacto, última hora del turno, cambio de día).
-- Obligatorios: carrera por el último cupo (dos solicitudes concurrentes), espera → asignación FIFO tras cancelación, revalidación tras cambio de horario, reprogramación fallida conserva la cita original.
 - Ubicación: `agenda/tests/test_<modulo>.py`.
 
 ## Qué NO hacer
@@ -114,7 +147,7 @@ Excepciones de dominio en `agenda/exceptions.py` (`DayClosed`, `QuotaExceeded`, 
 - No usar `pip install` ni `requirements.txt`; no editar `uv.lock` a mano.
 - No hardcodear límites: viven en `settings` o en `DayConfig`.
 - No borrar citas físicamente; usar estados.
-- No exponer datos personales del solicitante en logs.
+- No exponer datos personales del solicitante ni tokens en logs.
 - No modificar el esquema de la API pública sin actualizar `README.md`.
 
 ## Flujo de trabajo para el agente

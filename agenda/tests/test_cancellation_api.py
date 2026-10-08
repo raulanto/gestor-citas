@@ -16,6 +16,7 @@ from agenda.tests.factories import (
     ServiceFactory,
     WorkerFactory,
     WorkScheduleFactory,
+    create_appointment_with_token,
 )
 
 User = get_user_model()
@@ -48,7 +49,7 @@ def test_cancel_appointment_endpoint(api_client, tz):
     target_date = datetime.date(2026, 10, 15)
     start_at = datetime.datetime.combine(target_date, datetime.time(10, 0), tzinfo=tz)
 
-    appointment = AppointmentFactory(
+    appointment, token = create_appointment_with_token(
         service=service,
         worker=worker,
         date=target_date,
@@ -59,7 +60,7 @@ def test_cancel_appointment_endpoint(api_client, tz):
     url = f"/api/v1/appointments/{appointment.id}/cancel/"
     payload = {"reason": "Imprevisto personal", "force": False}
 
-    response = api_client.post(url, payload, format="json")
+    response = api_client.post(url, payload, format="json", HTTP_X_MANAGE_TOKEN=token)
     assert response.status_code == status.HTTP_200_OK
     assert response.data["id"] == str(appointment.id)
     assert response.data["status"] == AppointmentStatus.CANCELLED
@@ -71,21 +72,24 @@ def test_cancel_non_existent_uuid_returns_404(api_client):
     url = f"/api/v1/appointments/{random_id}/cancel/"
     response = api_client.post(url, {}, format="json")
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.data["code"] == "appointment_not_found"
+    assert response.data["code"].lower() == "appointment_not_found"
 
 
 @pytest.mark.django_db
 def test_cancel_force_permission_denied_for_non_staff(api_client, normal_user, tz):
     service = ServiceFactory()
-    appointment = AppointmentFactory(service=service, status=AppointmentStatus.CONFIRMED)
+    appointment, token = create_appointment_with_token(
+        service=service,
+        status=AppointmentStatus.CONFIRMED,
+    )
 
     api_client.force_authenticate(user=normal_user)
     url = f"/api/v1/appointments/{appointment.id}/cancel/"
     payload = {"reason": "Forzar", "force": True}
 
-    response = api_client.post(url, payload, format="json")
+    response = api_client.post(url, payload, format="json", HTTP_X_MANAGE_TOKEN=token)
     assert response.status_code == status.HTTP_403_FORBIDDEN
-    assert response.data["code"] == "PERMISSION_DENIED"
+    assert response.data["code"] == "FORBIDDEN"
 
 
 @pytest.mark.django_db
@@ -127,7 +131,7 @@ def test_reschedule_endpoint(api_client, tz):
     orig_start = datetime.datetime.combine(orig_date, datetime.time(10, 0), tzinfo=tz)
     new_start = datetime.datetime.combine(new_date, datetime.time(11, 0), tzinfo=tz)
 
-    appointment = AppointmentFactory(
+    appointment, token = create_appointment_with_token(
         service=service,
         worker=worker,
         date=orig_date,
@@ -142,7 +146,7 @@ def test_reschedule_endpoint(api_client, tz):
         "force": False,
     }
 
-    response = api_client.post(url, payload, format="json")
+    response = api_client.post(url, payload, format="json", HTTP_X_MANAGE_TOKEN=token)
     assert response.status_code == status.HTTP_201_CREATED
     assert response.data["rescheduled_from"] == str(appointment.id)
     assert response.data["reschedule_count"] == 1

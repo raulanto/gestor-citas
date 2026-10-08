@@ -289,7 +289,7 @@ AppointmentDetailSerializer = StaffAppointmentDetailSerializer
 class AppointmentBookingResponseSerializer(BaseAppointmentDetailSerializer):
     """Appointment response serializer for booking and reschedule with one-time manage_token."""
 
-    manage_token = serializers.CharField()
+    manage_token = serializers.SerializerMethodField()
     requester = RequesterPublicDetailSerializer()
 
     class Meta(BaseAppointmentDetailSerializer.Meta):
@@ -298,6 +298,9 @@ class AppointmentBookingResponseSerializer(BaseAppointmentDetailSerializer):
             "requester",
             *BaseAppointmentDetailSerializer.Meta.fields,
         ]
+
+    def get_manage_token(self, obj: Appointment) -> str | None:
+        return getattr(obj, "manage_token", None) or self.context.get("manage_token")
 
 
 class WorkerAgendaAppointmentSerializer(serializers.ModelSerializer):

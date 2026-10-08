@@ -1,10 +1,10 @@
 """Role definitions and role detection helper."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     """User roles for authentication and permission enforcement."""
 
     STAFF = "STAFF"

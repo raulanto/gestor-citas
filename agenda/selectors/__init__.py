@@ -4,6 +4,7 @@ from agenda.selectors.appointments import (
     get_appointment,
     list_active_appointments,
     list_appointments_queryset,
+    list_worker_agenda,
 )
 from agenda.selectors.availability import DayAvailability, Slot, get_day_availability
 from agenda.selectors.day_configs import resolve_day_config
@@ -39,6 +40,7 @@ __all__ = [
     "list_available_workers_on",
     "list_unserviceable_waitlist",
     "list_waitlist",
+    "list_worker_agenda",
     "resolve_day_config",
     "resolve_worker_shift",
     "waitlist_position",

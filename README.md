@@ -242,22 +242,157 @@ cupo_efectivo        = min(DayConfig.max_appointments, capacidad_personal)
   - Cambios sin citas afectadas se aplican de forma inmediata.
 - **Barrido periódico y comando de gestión:** Celery Beat ejecuta periódicamente `waitlist_maintenance_task` en orden: `expire_waitlist` → `revalidate_all` → `process_waitlist_all`. También disponible mediante el comando `revalidate_assignments [--worker ID]`.
 
+## Roles y permisos
+
+La API opera bajo el principio de **denegar por defecto** (`DEFAULT_PERMISSION_CLASSES = [IsAuthenticated]`) con JWT (`djangorestframework-simplejwt`). Las únicas rutas públicas declaran explícitamente `AllowAny` y forman parte de una lista blanca verificada por pruebas automatizadas.
+
+### Roles efectivos
+
+1. **Solicitante (Anónimo con Token):** No requiere cuenta. Gestiona su cita enviando su token de gestión en el encabezado `X-Manage-Token`.
+2. **Trabajador (`WORKER`):** Usuario Django autenticado con perfil `Worker` vinculado y activo (`Worker.is_active=True`). Gestiona su horario, excepciones, agenda diaria (`/me/agenda/`) y transiciones de citas que tiene asignadas.
+3. **Staff (`STAFF`):** Usuario con `is_staff=True` o `is_superuser=True`. Control total sobre configuraciones de día, personal, rotación de tokens, cancelación forzada y visualización completa. Si un usuario es staff y trabajador a la vez, su rol es `STAFF` y conserva su `worker_id`.
+4. **Sin Rol (`NONE`):** Usuario autenticado sin `is_staff` y sin `Worker` activo asignado. Recibe `403 Forbidden` en todos los endpoints protegidos.
+
+### Matriz de permisos
+
+| Endpoint / Operación | Público | Solicitante (`X-Manage-Token`) | Trabajador (`WORKER`) | Staff (`STAFF`) |
+|---|---|---|---|---|
+| `GET /api/v1/health/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/availability/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/appointments/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/appointments/{id}/` | ❌ (401/404) | ✅ Su cita | ✅ Solo sus citas asignadas | ✅ Todas |
+| `POST /api/v1/appointments/{id}/cancel/` | ❌ (401/404) | ✅ Su cita | ❌ (403) | ✅ (con `force`) |
+| `POST /api/v1/appointments/{id}/reschedule/` | ❌ (401/404) | ✅ Su cita | ❌ (403) | ✅ (con `force`) |
+| `POST /api/v1/appointments/{id}/complete/` | ❌ (401/404) | ❌ (403/404) | ✅ Solo sus citas asignadas | ✅ |
+| `POST /api/v1/appointments/{id}/no-show/` | ❌ (401/404) | ❌ (403/404) | ✅ Solo sus citas asignadas | ✅ |
+| `POST /api/v1/appointments/{id}/token/` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/appointments/` (`?unserviceable=true`) | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/waitlist/` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET /api/v1/me/agenda/?date=` | ❌ (401) | ❌ (403) | ✅ Su propia agenda | ✅ Con `worker_id` |
+| `GET/PUT /api/v1/workers/{id}/schedule/` | ❌ (401) | ❌ (403) | ✅ Solo su propio perfil | ✅ |
+| `POST/DELETE /api/v1/workers/{id}/exceptions/`| ❌ (401) | ❌ (403) | ✅ Solo su propio perfil | ✅ |
+| `PATCH /api/v1/workers/{id}/` (`is_active`) | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `GET/PUT /api/v1/day-configs/...` | ❌ (401) | ❌ (403) | ❌ (403) | ✅ |
+| `POST /api/v1/auth/token/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/auth/token/refresh/` | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/v1/auth/logout/` | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/v1/auth/me/` | ❌ (401) | ❌ (401) | ✅ | ✅ |
+
+---
+
+## Autenticación (JWT)
+
+La autenticación de la API utiliza tokens JWT (`Bearer <access_token>`). Las sesiones de cookies quedan reservadas exclusivamente para el panel de administración de Django.
+
+### 1. Iniciar sesión (`POST /api/v1/auth/token/`)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/token/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "dra.ana",
+    "password": "Password123!"
+  }'
+```
+
+**Respuesta (`200 OK`):**
+```json
+{
+  "access": "eyJhbGciOiJIUzI1NiIsIn...",
+  "refresh": "eyJhbGciOiJIUzI1NiIsIn..."
+}
+```
+
+> **Protección ante fuerza bruta:** Tras 5 intentos fallidos para un mismo usuario, se bloquea por 15 minutos respondiendo `429 Too Many Requests` (`LOGIN_LOCKED`) con cabecera `Retry-After`. La respuesta a credenciales inválidas siempre es uniforme (`INVALID_CREDENTIALS`), exista o no el usuario.
+
+### 2. Refrescar token con rotación (`POST /api/v1/auth/token/refresh/`)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh": "eyJhbGciOiJIUzI1NiIsIn..."
+  }'
+```
+
+**Respuesta (`200 OK`):**
+```json
+{
+  "access": "eyJhbGciOiJIUzI1NiIsIn...",
+  "refresh": "eyJhbGciOiJIUzI1NiIsIn..."
+}
+```
+
+### 3. Cerrar sesión / Lista negra (`POST /api/v1/auth/logout/`)
+
+Coloca el `refresh` token en la lista negra, impidiendo refrescos posteriores:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh": "eyJhbGciOiJIUzI1NiIsIn..."
+  }'
+```
+
+**Respuesta:** `204 No Content`.
+
+### 4. Consultar perfil actual (`GET /api/v1/auth/me/`)
+
+```bash
+curl -X GET http://localhost:8000/api/v1/auth/me/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**Respuesta (`200 OK`):**
+```json
+{
+  "id": 2,
+  "username": "dra.ana",
+  "role": "WORKER",
+  "worker_id": 1
+}
+```
+
+---
+
+## Token de gestión del solicitante
+
+Para evitar exponer UUIDs como credenciales en logs y navegadores:
+
+1. **Emisión única:** Al crear una cita (`POST /api/v1/appointments/`) o reprogramarla (`POST /api/v1/appointments/{id}/reschedule/`), la respuesta entrega un `manage_token` seguro (`secrets.token_urlsafe(32)`).
+2. **Almacenamiento seguro:** El token en texto claro **nunca se persiste en la base de datos ni se escribe en logs**. Solo se almacena su hash SHA-256 (`manage_token_hash`).
+3. **Uso en cabecera:** El solicitante incluye el encabezado `X-Manage-Token: <token>` al consultar, cancelar o reprogramar su cita.
+4. **Prevención de enumeración:** Si no se proporciona un token válido, el endpoint responde `404 Not Found` (`APPOINTMENT_NOT_FOUND`) sin distinguir si la cita no existe o si el token es incorrecto.
+5. **Rotación por Staff:** Si el solicitante extravía su token, un usuario Staff puede rotarlo con `POST /api/v1/appointments/{id}/token/`, lo que genera un nuevo token e invalida el anterior registrando un evento de auditoría.
+
+---
+
+## Privacidad de datos por rol
+
+Los endpoints de citas filtran la información personal del solicitante según el rol:
+- **Solicitante (con token):** Solo recibe nombre (`full_name`) y ID; no expone teléfono ni correo.
+- **Trabajador:** Recibe nombre y teléfono del solicitante únicamente en sus citas asignadas para contacto operativo.
+- **Staff:** Acceso a todos los datos de contacto (`full_name`, `phone`, `email`).
+
+---
+
 ## Estructura del proyecto
 
 ```
 agenda/
 ├── adapters/          # Adaptadores externos (AppointmentBusySlots que implementa BusySlotsPort)
-├── api/               # Serializers, views delgadas, urls (sin lógica de negocio)
+├── api/               # Serializers, views delgadas, urls, permissions, roles, auth
 ├── exceptions.py      # Excepciones de dominio tipadas con código y http_status
 ├── management/        # Comandos administrativos (seed_demo, process_waitlist, expire_waitlist, revalidate_assignments)
 ├── models/            # Requester, Service, Worker, WorkSchedule, ScheduleException,
 │                      # DayConfig, Appointment, AppointmentEvent
 ├── ports.py           # Protocolo BusySlotsPort y NullBusySlots
-├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment, list_waitlist, schedules)
-├── services/          # Casos de uso (booking, waitlist, assignment, capacity, schedules, cancellation, locks)
+├── selectors/         # Consultas de solo lectura (get_day_availability, get_appointment, list_waitlist, schedules, appointments)
+├── services/          # Casos de uso (booking, waitlist, assignment, capacity, schedules, cancellation, locks, manage_token, requesters)
 ├── tasks.py           # Tareas Celery (process_waitlist_task, waitlist_maintenance_task)
 ├── admin.py           # Admin de Django (Appointment sólo lectura, WaitlistTriggerMixin)
-├── tests/             # Tests unitarios, de integración y de concurrencia
+├── tests/             # Tests unitarios, de integración, de roles, autenticación y concurrencia
 └── migrations/        # Migraciones versionadas (incluye BtreeGistExtension)
 ```
 
@@ -265,13 +400,18 @@ agenda/
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
+| GET | `/api/v1/health/` | Público | Verificación de estado del servicio |
 | GET | `/api/v1/availability/?date=&service=` | Público | Horarios libres y cupo restante |
-| POST | `/api/v1/appointments/` | Público | Solicitar cita (confirma o deja en espera) |
-| GET | `/api/v1/appointments/{id}/` | Público | Detalle de cita por UUID (incluye `waitlist_position`) |
-| GET | `/api/v1/appointments/?unserviceable=true` | Staff | Listado de citas en espera que no caben en ningún horario |
+| POST | `/api/v1/appointments/` | Público | Solicitar cita (devuelve `manage_token` una sola vez) |
+| GET | `/api/v1/appointments/{id}/` | Solicitante (`X-Manage-Token`) / Trabajador (asignada) / Staff | Detalle de cita (datos del solicitante según rol) |
+| POST | `/api/v1/appointments/{id}/cancel/` | Solicitante (`X-Manage-Token`) / Staff | Cancelar cita (`force` disponible para staff) |
+| POST | `/api/v1/appointments/{id}/reschedule/` | Solicitante (`X-Manage-Token`) / Staff | Reprogramar cita (devuelve nuevo `manage_token`) |
+| POST | `/api/v1/appointments/{id}/complete/` | Trabajador (asignada) / Staff | Marcar cita como completada |
+| POST | `/api/v1/appointments/{id}/no-show/` | Trabajador (asignada) / Staff | Marcar cita como inasistencia |
+| POST | `/api/v1/appointments/{id}/token/` | Staff | Rota el token de gestión y lo entrega una sola vez |
+| GET | `/api/v1/appointments/?unserviceable=true` | Staff | Listado de citas en espera inatendibles |
 | GET | `/api/v1/waitlist/?date=YYYY-MM-DD` | Staff | Lista FIFO de citas en espera con posición |
-| POST | `/api/v1/appointments/{id}/cancel/` | Público | Cancelar cita |
-| POST | `/api/v1/appointments/{id}/reschedule/` | Público | Reprogramar cita |
+| GET | `/api/v1/me/agenda/?date=YYYY-MM-DD` | Trabajador (propia) / Staff (`worker_id` req) | Citas confirmadas de un trabajador en una fecha |
 | GET | `/api/v1/workers/{id}/schedule/` | Staff / Trabajador propio | Horario semanal y excepciones futuras |
 | PUT | `/api/v1/workers/{id}/schedule/` | Staff / Trabajador propio | Reemplaza horario semanal (soporta `confirm`, `dry_run`) |
 | POST | `/api/v1/workers/{id}/exceptions/` | Staff / Trabajador propio | Crea ausencia u horario especial (soporta `confirm`, `dry_run`) |
@@ -280,6 +420,10 @@ agenda/
 | GET | `/api/v1/day-configs/{date}/` | Staff | Configuración del día y resumen de cupos/ocupación |
 | PUT | `/api/v1/day-configs/{date}/` | Staff | Actualiza cupo y apertura (`is_open`, `max_appointments`, `note`) |
 | GET/PUT | `/api/v1/day-configs/weekday/{0-6}/` | Staff | Configuración por defecto por día de la semana |
+| POST | `/api/v1/auth/token/` | Público | Obtener tokens JWT (`access` y `refresh`) con usuario y contraseña |
+| POST | `/api/v1/auth/token/refresh/` | Público | Refrescar `access` token con rotación de `refresh` |
+| POST | `/api/v1/auth/logout/` | Público | Invalida el `refresh` token en lista negra |
+| GET | `/api/v1/auth/me/` | Autenticado | Perfil del usuario autenticado actual |
 
 ---
 
@@ -305,6 +449,7 @@ agenda/
 {
   "id": "7fa82645-17a4-44cf-a6e5-4f402f04df97",
   "status": "CONFIRMED",
+  "manage_token": "a8f3B9_...",
   "service": {
     "id": 1,
     "name": "Consulta General",
@@ -315,170 +460,9 @@ agenda/
   "end_at": "2026-10-12T09:30:00-06:00",
   "requester": {
     "id": 1,
-    "full_name": "Ana Pérez",
-    "phone": "9931234567",
-    "email": "ana.perez@example.com"
+    "full_name": "Ana Pérez"
   },
   "worker_name": "Dra. Ana López"
-}
-```
-
-**Respuesta en lista de espera (`201 Created`):**
-
-```json
-{
-  "id": "9938b812-70b9-4a46-88fe-7096fb0081d4",
-  "status": "WAITLISTED",
-  "service": {
-    "id": 1,
-    "name": "Consulta General",
-    "duration_minutes": 30
-  },
-  "date": "2026-10-12",
-  "start_at": "2026-10-12T09:00:00-06:00",
-  "end_at": "2026-10-12T09:30:00-06:00",
-  "requester": {
-    "id": 2,
-    "full_name": "Carlos Ruiz",
-    "phone": "5551234567",
-    "email": "carlos@example.com"
-  },
-  "worker_name": null
-}
-```
-
----
-
-### Detalle de Cita (`GET /api/v1/appointments/{id}/`)
-
-Retorna `200 OK` con la información completa de la cita. Si la cita está en estado `WAITLISTED`, incluye el campo `waitlist_position` con la posición entera (`1`, `2`, …) dentro de la lista de espera para ese día. Si la cita ya está `CONFIRMED` o en otro estado, `waitlist_position` es `null`.
-
-```json
-{
-  "id": "9938b812-70b9-4a46-88fe-7096fb0081d4",
-  "status": "WAITLISTED",
-  "service": {
-    "id": 1,
-    "name": "Consulta General",
-    "duration_minutes": 30
-  },
-  "date": "2026-10-12",
-  "start_at": "2026-10-12T09:00:00-06:00",
-  "end_at": "2026-10-12T09:30:00-06:00",
-  "requester": {
-    "id": 2,
-    "full_name": "Carlos Ruiz",
-    "phone": "5551234567",
-    "email": "carlos@example.com"
-  },
-  "worker_name": null,
-  "waitlist_position": 1
-}
-```
-
----
-
-### Listado de Lista de Espera (`GET /api/v1/waitlist/?date=YYYY-MM-DD`)
-
-Exclusivo para usuarios Staff (`IsAdminUser`). Parámetro `date` obligatorio.
-
-Retorna la lista ordenada FIFO (`created_at, id`) de las citas en espera para esa fecha con su posición actual:
-
-```json
-[
-  {
-    "id": "9938b812-70b9-4a46-88fe-7096fb0081d4",
-    "position": 1,
-    "requester_name": "Carlos Ruiz",
-    "service": {
-      "id": 1,
-      "name": "Consulta General",
-      "duration_minutes": 30
-    },
-    "start_at": "2026-10-12T09:00:00-06:00",
-    "created_at": "2026-10-07T12:00:00-06:00"
-  }
-]
-```
-
----
-
-### Detalle de Disponibilidad (`GET /api/v1/availability/`)
-
-Parámetros requeridos: `date` (`YYYY-MM-DD`) y `service` (`id` entero).
-
-Utiliza `AppointmentBusySlots` para descontar citas en `OCCUPYING_STATUSES` de los trabajadores libres por horario y citas en `QUOTA_STATUSES` del cupo restante diario.
-
-```json
-{
-  "date": "2026-10-12",
-  "service": {
-    "id": 1,
-    "name": "Consulta General",
-    "duration_minutes": 30
-  },
-  "is_open": true,
-  "reason": null,
-  "effective_quota": 20,
-  "remaining_quota": 19,
-  "slots": [
-    {
-      "start": "2026-10-12T09:00:00-06:00",
-      "end": "2026-10-12T09:30:00-06:00",
-      "free_workers": 1
-    }
-  ]
-}
-```
-
----
-
-### Cambios de Horario y Esquema de Impacto (`PUT /api/v1/workers/{id}/schedule/`)
-
-Permite previsualizar (`dry_run=true`) o aplicar (`confirm=true`) cambios de horario:
-
-**Payload:**
-
-```json
-{
-  "entries": [
-    {
-      "weekday": 0,
-      "start_time": "09:00",
-      "end_time": "14:00",
-      "break_start": null,
-      "break_end": null
-    }
-  ],
-  "confirm": false,
-  "dry_run": false
-}
-```
-
-**Respuesta cuando afecta citas sin confirmación (`409 Conflict`):**
-
-```json
-{
-  "code": "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION",
-  "detail": "El cambio de horario afecta citas existentes y requiere confirmación.",
-  "impact": {
-    "displaced": [
-      {
-        "appointment_id": "7fa82645-17a4-44cf-a6e5-4f402f04df97",
-        "date": "2026-10-12",
-        "start_at": "2026-10-12T15:00:00-06:00",
-        "requester_name": "Ana Pérez",
-        "outcome": "WAITLISTED",
-        "new_worker_name": null,
-        "unserviceable": true
-      }
-    ],
-    "reassigned": 0,
-    "waitlisted": 1,
-    "unserviceable": 1,
-    "promoted_from_waitlist": 0,
-    "over_quota": []
-  }
 }
 ```
 
@@ -496,6 +480,11 @@ Permite previsualizar (`dry_run=true`) o aplicar (`confirm=true`) cambios de hor
 | `WAITLIST_MAX_PER_DAY` | 20 | Tope de citas en espera por día |
 | `DEFAULT_SLOT_STEP_MINUTES` | 15 | Granularidad de horarios ofrecidos (minutos) |
 | `WAITLIST_SWEEP_MINUTES` | 5 | Intervalo del barrido periódico de mantenimiento (minutos) |
+| `JWT_ACCESS_MINUTES` | 15 | Duración del token de acceso JWT (minutos) |
+| `JWT_REFRESH_DAYS` | 7 | Duración del token de refresco JWT (días) |
+| `LOGIN_MAX_FAILED_ATTEMPTS` | 5 | Intentos fallidos antes del bloqueo temporal |
+| `LOGIN_LOCKOUT_MINUTES` | 15 | Duración del bloqueo tras exceder intentos fallidos (minutos) |
+| `REDIS_URL` | `redis://localhost:6379/1` | URL de Redis para la caché de bloqueo y tokens |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | URL del broker Redis para tareas Celery |
 | `CELERY_RESULT_BACKEND` | `redis://localhost:6379/0` | Backend de resultados para Celery |
 
@@ -533,3 +522,13 @@ uv run python manage.py revalidate_assignments --worker 1# revalida citas de un 
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
+
+---
+
+## Roadmap de la Fase 7
+
+La Fase 7 completa la operacionalización de la microapp dividida en tres entregas:
+
+- **Fase 7a (Completada):** Autenticación JWT, control de acceso basado en roles (`STAFF`, `WORKER`, `NONE`, Solicitante con token), token de gestión seguro (`manage_token`), protección contra ataques de fuerza bruta en login y privacidad de datos por rol.
+- **Fase 7b (Próxima):** Operación de la API (rate limiting granular con DRF throttling, logging estructurado JSON, paginación y documentación OpenAPI / Swagger).
+- **Fase 7c (Final):** Despliegue en producción (Docker, orquestación, healthchecks avanzados y respaldos automatizados).

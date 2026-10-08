@@ -81,7 +81,7 @@ class Appointment(models.Model):
         related_name="rescheduled_children",
         verbose_name="reprogramada desde",
     )
-    manage_token_hash = models.CharField(
+    manage_token_hash = models.CharField(  # noqa: DJ001
         "hash de token de gestión",
         max_length=64,
         null=True,

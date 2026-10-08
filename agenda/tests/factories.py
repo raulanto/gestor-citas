@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import factory
 from django.conf import settings
+from django.contrib.auth.models import User
 from factory.django import DjangoModelFactory
 
 from agenda.constants import AppointmentStatus
@@ -20,6 +21,36 @@ from agenda.models import (
     Worker,
     WorkSchedule,
 )
+from agenda.services.manage_token import issue_manage_token
+
+
+class UserFactory(DjangoModelFactory):
+    class Meta:
+        model = User
+        django_get_or_create = ("username",)
+
+    username = factory.Sequence(lambda n: f"user_{n}")
+    email = factory.Sequence(lambda n: f"user_{n}@example.com")
+    is_active = True
+    is_staff = False
+    is_superuser = False
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        password = kwargs.pop("password", "password123")
+        user = super()._create(model_class, *args, **kwargs)
+        user.set_password(password)
+        user.save()
+        return user
+
+
+class StaffUserFactory(UserFactory):
+    is_staff = True
+
+
+class SuperUserFactory(UserFactory):
+    is_staff = True
+    is_superuser = True
 
 
 class RequesterFactory(DjangoModelFactory):
@@ -45,8 +76,18 @@ class WorkerFactory(DjangoModelFactory):
     class Meta:
         model = Worker
 
+    user = None
     full_name = factory.Sequence(lambda n: f"Trabajador {n}")
     is_active = True
+
+
+class WorkerUserFactory(UserFactory):
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        user = super()._create(model_class, *args, **kwargs)
+        if not hasattr(user, "worker_profile"):
+            WorkerFactory(user=user, full_name=f"Worker {user.username}")
+        return user
 
 
 class WorkScheduleFactory(DjangoModelFactory):
@@ -113,6 +154,13 @@ class AppointmentFactory(DjangoModelFactory):
         return self.start_at + datetime.timedelta(minutes=duration)
 
     status = AppointmentStatus.CONFIRMED
+
+
+def create_appointment_with_token(**kwargs) -> tuple[Appointment, str]:
+    """Helper to create an appointment and issue its initial manage token."""
+    appointment = AppointmentFactory(**kwargs)
+    raw_token = issue_manage_token(appointment)
+    return appointment, raw_token
 
 
 class AppointmentEventFactory(DjangoModelFactory):

@@ -20,7 +20,6 @@ from agenda.api.serializers import (
     AppointmentBookingResponseSerializer,
     AppointmentCancelSerializer,
     AppointmentCreateSerializer,
-    AppointmentDetailSerializer,
     AppointmentListQuerySerializer,
     AppointmentRescheduleSerializer,
     AvailabilityQuerySerializer,
@@ -220,8 +219,9 @@ class AppointmentsView(APIView):
             actor=actor,
         )
 
-        response_data = AppointmentBookingResponseSerializer(result.appointment).data
-        response_data["manage_token"] = result.manage_token
+        response_data = AppointmentBookingResponseSerializer(
+            result.appointment, context={"manage_token": result.manage_token}
+        ).data
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
@@ -267,6 +267,30 @@ class AppointmentCancelView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
+        role = get_user_role(request.user)
+        is_staff = role == Role.STAFF
+
+        if isinstance(request.data, dict) and request.data.get("force") and not is_staff:
+            return Response(
+                {
+                    "code": "FORBIDDEN",
+                    "detail": "Se requieren permisos de staff para forzar la cancelación.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        appointment = get_appointment(id)
+
+        # Authorization: Staff or valid manage token
+        token = _get_manage_token_from_request(request)
+        has_token = bool(token and verify_manage_token(appointment, token))
+
+        if not is_staff and not has_token:
+            return Response(
+                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         serializer = AppointmentCancelSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -279,28 +303,13 @@ class AppointmentCancelView(APIView):
             )
 
         force = serializer.validated_data.get("force", False)
-        role = get_user_role(request.user)
-
-        if force and role != Role.STAFF:
+        if force and not is_staff:
             return Response(
                 {
                     "code": "FORBIDDEN",
                     "detail": "Se requieren permisos de staff para forzar la cancelación.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
-            )
-
-        appointment = get_appointment(id)
-
-        # Authorization: Staff or valid manage token
-        is_staff = role == Role.STAFF
-        token = _get_manage_token_from_request(request)
-        has_token = bool(token and verify_manage_token(appointment, token))
-
-        if not is_staff and not has_token:
-            return Response(
-                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
-                status=status.HTTP_404_NOT_FOUND,
             )
 
         reason = serializer.validated_data.get("reason", "")
@@ -327,6 +336,29 @@ class AppointmentRescheduleView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request: Request, id: uuid.UUID, *args, **kwargs) -> Response:
+        role = get_user_role(request.user)
+        is_staff = role == Role.STAFF
+
+        if isinstance(request.data, dict) and request.data.get("force") and not is_staff:
+            return Response(
+                {
+                    "code": "FORBIDDEN",
+                    "detail": "Se requieren permisos de staff para forzar la reprogramación.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        appointment = get_appointment(id)
+
+        token = _get_manage_token_from_request(request)
+        has_token = bool(token and verify_manage_token(appointment, token))
+
+        if not is_staff and not has_token:
+            return Response(
+                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         serializer = AppointmentRescheduleSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -339,27 +371,13 @@ class AppointmentRescheduleView(APIView):
             )
 
         force = serializer.validated_data.get("force", False)
-        role = get_user_role(request.user)
-
-        if force and role != Role.STAFF:
+        if force and not is_staff:
             return Response(
                 {
                     "code": "FORBIDDEN",
                     "detail": "Se requieren permisos de staff para forzar la reprogramación.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
-            )
-
-        appointment = get_appointment(id)
-
-        is_staff = role == Role.STAFF
-        token = _get_manage_token_from_request(request)
-        has_token = bool(token and verify_manage_token(appointment, token))
-
-        if not is_staff and not has_token:
-            return Response(
-                {"code": "APPOINTMENT_NOT_FOUND", "detail": "La cita solicitada no existe."},
-                status=status.HTTP_404_NOT_FOUND,
             )
 
         new_start_at = serializer.validated_data["start_at"]
@@ -374,8 +392,9 @@ class AppointmentRescheduleView(APIView):
             allow_waitlist=allow_waitlist,
         )
 
-        response_data = AppointmentBookingResponseSerializer(result.appointment).data
-        response_data["manage_token"] = result.manage_token
+        response_data = AppointmentBookingResponseSerializer(
+            result.appointment, context={"manage_token": result.manage_token}
+        ).data
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 

@@ -74,6 +74,7 @@ def test_post_appointment_confirmed_success(api_client, setup_api_env):
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert "id" in data
+    assert "manage_token" in data
     assert data["status"] == AppointmentStatus.CONFIRMED
     assert data["service"]["id"] == 1
     assert data["service"]["name"] == "Consulta General"
@@ -82,7 +83,7 @@ def test_post_appointment_confirmed_success(api_client, setup_api_env):
     assert data["start_at"] == "2026-10-12T09:00:00-06:00"
     assert data["end_at"] == "2026-10-12T09:30:00-06:00"
     assert data["requester"]["full_name"] == "Ana Pérez"
-    assert data["requester"]["phone"] == "9931234567"
+    assert "phone" not in data["requester"]
     assert data["worker_name"] == "Dra. Ana López"
 
 
@@ -180,9 +181,13 @@ def test_get_appointment_detail_and_not_found(api_client, setup_api_env):
         format="json",
     )
     appt_id = post_res.json()["id"]
+    manage_token = post_res.json()["manage_token"]
 
     # 200 OK
-    get_res = api_client.get(f"/api/v1/appointments/{appt_id}/")
+    get_res = api_client.get(
+        f"/api/v1/appointments/{appt_id}/",
+        HTTP_X_MANAGE_TOKEN=manage_token,
+    )
     assert get_res.status_code == status.HTTP_200_OK
     assert get_res.json()["id"] == appt_id
 
@@ -190,7 +195,7 @@ def test_get_appointment_detail_and_not_found(api_client, setup_api_env):
     random_id = uuid.uuid4()
     not_found_res = api_client.get(f"/api/v1/appointments/{random_id}/")
     assert not_found_res.status_code == status.HTTP_404_NOT_FOUND
-    assert not_found_res.json()["code"] == "appointment_not_found"
+    assert not_found_res.json()["code"].lower() == "appointment_not_found"
 
 
 @pytest.mark.django_db

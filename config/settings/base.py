@@ -1,5 +1,6 @@
 """Base settings for agenda-citas project."""
 
+from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
@@ -18,8 +19,6 @@ ALLOWED_HOSTS = config(
     default="localhost,127.0.0.1,testserver",
     cast=Csv(),
 )
-
-from datetime import timedelta
 
 # Application definition
 INSTALLED_APPS = [
@@ -148,7 +147,9 @@ SIMPLE_JWT = {
 }
 
 # Cache Configuration
-REDIS_URL = config("REDIS_URL", default=config("CELERY_BROKER_URL", default="redis://localhost:6379/0"))
+REDIS_URL = config(
+    "REDIS_URL", default=config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
