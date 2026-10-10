@@ -80,6 +80,7 @@ def create_appointment_in_lock(
         raise InvalidSlot("La cita debe iniciar y concluir en el mismo día.")
 
     target_date = start_at_local.date()
+    day_config = resolve_day_config(target_date)
 
     # 1. Booking window validation
     if now is None:
@@ -87,21 +88,20 @@ def create_appointment_in_lock(
     now_local = timezone.localtime(now, tz)
     today = now_local.date()
 
-    min_advance_hours = getattr(settings, "BOOKING_MIN_ADVANCE_HOURS", 2)
+    min_advance_hours = day_config.booking_min_advance_hours
     min_advance_dt = now_local + datetime.timedelta(hours=min_advance_hours)
-    max_advance_days = getattr(settings, "BOOKING_MAX_ADVANCE_DAYS", 60)
+    max_advance_days = day_config.booking_max_advance_days
     max_date = today + datetime.timedelta(days=max_advance_days)
 
     if target_date < today or start_at_local < min_advance_dt or target_date > max_date:
         raise OutsideBookingWindow()
 
     # 2. Day closed validation
-    day_config = resolve_day_config(target_date)
     if not day_config.is_open:
         raise DayClosed()
 
     # 3. Slot grid alignment
-    step_minutes = getattr(settings, "DEFAULT_SLOT_STEP_MINUTES", 15)
+    step_minutes = day_config.default_slot_step_minutes
     if (
         start_at_local.minute % step_minutes != 0
         or start_at_local.second != 0
@@ -136,7 +136,7 @@ def create_appointment_in_lock(
         raise QuotaExceeded()
 
     # 6. Requester limits & conflict validation
-    max_active_per_day = getattr(settings, "MAX_ACTIVE_PER_REQUESTER_PER_DAY", 1)
+    max_active_per_day = day_config.max_active_per_requester_per_day
     requester_active = Appointment.objects.filter(
         requester=requester,
         date=target_date,
@@ -216,7 +216,7 @@ def create_appointment_in_lock(
     if not allow_waitlist:
         raise NoWorkerAvailable()
 
-    waitlist_max = getattr(settings, "WAITLIST_MAX_PER_DAY", 20)
+    waitlist_max = day_config.waitlist_max_per_day
     current_waitlisted = Appointment.objects.filter(
         date=target_date,
         status=AppointmentStatus.WAITLISTED,

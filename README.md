@@ -90,6 +90,13 @@ erDiagram
         positive_int max_appointments
         boolean is_open
         string note
+        positive_int booking_min_advance_hours
+        positive_int booking_max_advance_days
+        positive_int cancel_min_hours
+        positive_int max_reschedules_per_appointment
+        positive_int max_active_per_requester_per_day
+        positive_int waitlist_max_per_day
+        positive_int default_slot_step_minutes
         datetime created_at
         datetime updated_at
     }
@@ -510,6 +517,9 @@ uv run python manage.py anonymize_requesters --older-than-days 730
 ---
 
 ## Configuración (`settings` / variables de entorno)
+
+> **Configuración dinámica en Django Admin:**
+> Las primeras 7 reglas de dominio (`BOOKING_MIN_ADVANCE_HOURS`, `BOOKING_MAX_ADVANCE_DAYS`, `CANCEL_MIN_HOURS`, `MAX_RESCHEDULES_PER_APPOINTMENT`, `MAX_ACTIVE_PER_REQUESTER_PER_DAY`, `WAITLIST_MAX_PER_DAY`, `DEFAULT_SLOT_STEP_MINUTES`) pueden configurarse y sobrescribirse dinámicamente desde el **Django Admin** en el modelo **`DayConfig`** (o vía API), tanto de forma general por día de la semana (`weekday`), como para una fecha específica (`date`). Si un campo se deja vacío en `DayConfig`, hereda automáticamente el valor configurado en el entorno (`.env` / `settings`).
 
 | Variable | Default | Descripción |
 |---|---|---|

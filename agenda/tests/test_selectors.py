@@ -76,6 +76,46 @@ class TestDayConfigSelector:
         assert resolved.max_appointments == 0
         assert resolved.source == "date_override"
 
+    def test_domain_settings_fallback_to_defaults(self):
+        target_date = datetime.date(2026, 10, 14)
+        resolved = resolve_day_config(target_date)
+
+        assert resolved.booking_min_advance_hours == 2
+        assert resolved.booking_max_advance_days == 60
+        assert resolved.cancel_min_hours == 4
+        assert resolved.max_reschedules_per_appointment == 2
+        assert resolved.max_active_per_requester_per_day == 1
+        assert resolved.waitlist_max_per_day == 20
+        assert resolved.default_slot_step_minutes == 15
+
+    def test_domain_settings_hierarchical_resolution(self):
+        target_date = datetime.date(2026, 10, 14)  # Wednesday (weekday 2)
+        # Weekday default sets some parameters
+        DayConfig.objects.create(
+            weekday=Weekday.WEDNESDAY,
+            date=None,
+            is_open=True,
+            booking_min_advance_hours=6,
+            cancel_min_hours=12,
+            waitlist_max_per_day=5,
+        )
+        # Date override sets one parameter specifically
+        DayConfig.objects.create(
+            date=target_date,
+            weekday=None,
+            is_open=True,
+            booking_min_advance_hours=1,  # Overrides weekday's 6
+            # cancel_min_hours is None -> should cascade to weekday's 12
+            # booking_max_advance_days is None on both -> should cascade to settings (60)
+        )
+
+        resolved = resolve_day_config(target_date)
+        assert resolved.source == "date_override"
+        assert resolved.booking_min_advance_hours == 1  # From date override
+        assert resolved.cancel_min_hours == 12  # From weekday default
+        assert resolved.waitlist_max_per_day == 5  # From weekday default
+        assert resolved.booking_max_advance_days == 60  # From settings fallback
+
 
 @pytest.mark.django_db
 class TestWorkerShiftSelectors:

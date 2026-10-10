@@ -59,8 +59,10 @@ def get_day_availability(
     current_local_dt = timezone.localtime(now, tz)
     today = current_local_dt.date()
 
+    day_config = resolve_day_config(target_date)
+
     # 1. Booking window check (OUT_OF_WINDOW)
-    max_advance_days = getattr(settings, "BOOKING_MAX_ADVANCE_DAYS", 60)
+    max_advance_days = day_config.booking_max_advance_days
     max_date = today + datetime.timedelta(days=max_advance_days)
 
     if target_date < today or target_date > max_date:
@@ -74,7 +76,6 @@ def get_day_availability(
         )
 
     # 2. Day configuration open/closed check (DAY_CLOSED)
-    day_config = resolve_day_config(target_date)
     if not day_config.is_open:
         return DayAvailability(
             date=target_date,
@@ -116,9 +117,9 @@ def get_day_availability(
         )
 
     # 5. Slot generation and filtering
-    min_advance_hours = getattr(settings, "BOOKING_MIN_ADVANCE_HOURS", 2)
+    min_advance_hours = day_config.booking_min_advance_hours
     min_advance_dt = current_local_dt + datetime.timedelta(hours=min_advance_hours)
-    step_minutes = getattr(settings, "DEFAULT_SLOT_STEP_MINUTES", 15)
+    step_minutes = day_config.default_slot_step_minutes
 
     busy_map = busy.busy_intervals(target_date)
     slot_worker_counts: dict[tuple[datetime.time, datetime.time], int] = {}

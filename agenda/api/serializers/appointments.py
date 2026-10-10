@@ -2,11 +2,11 @@
 
 import datetime
 
-from django.conf import settings
 from rest_framework import serializers
 
 from agenda.constants import AppointmentStatus
 from agenda.models import Appointment
+from agenda.selectors.day_configs import resolve_day_config
 from agenda.selectors.waitlist import waitlist_position
 
 from .availability import ServiceSummarySerializer
@@ -116,13 +116,21 @@ class BaseAppointmentDetailSerializer(serializers.ModelSerializer):
     def get_waitlist_position(self, obj: Appointment) -> int | None:
         return waitlist_position(obj)
 
+    def _get_day_config(self, target_date: datetime.date):
+        cache = self.context.setdefault("_day_config_cache", {})
+        if target_date not in cache:
+            cache[target_date] = resolve_day_config(target_date)
+        return cache[target_date]
+
     def get_reschedules_remaining(self, obj: Appointment) -> int:
-        max_reschedules = getattr(settings, "MAX_RESCHEDULES_PER_APPOINTMENT", 2)
+        day_config = self._get_day_config(obj.date)
+        max_reschedules = day_config.max_reschedules_per_appointment
         return max(0, max_reschedules - obj.reschedule_count)
 
     def get_can_cancel_until(self, obj: Appointment) -> str | None:
         if obj.status == AppointmentStatus.CONFIRMED:
-            min_hours = getattr(settings, "CANCEL_MIN_HOURS", 4)
+            day_config = self._get_day_config(obj.date)
+            min_hours = day_config.cancel_min_hours
             limit = obj.start_at - datetime.timedelta(hours=min_hours)
             return limit.isoformat()
         return None

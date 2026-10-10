@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 
 from agenda.constants import AppointmentStatus
 from agenda.exceptions import CancellationNotAllowed, InvalidStateTransition
-from agenda.models import AppointmentEvent
+from agenda.models import AppointmentEvent, DayConfig
 from agenda.services.cancellation import cancel_appointment, cancel_appointments_for_day
 from agenda.tests.factories import (
     AppointmentFactory,
@@ -325,3 +325,33 @@ def test_cancel_appointments_for_day_staff_service(tz):
     assert AppointmentEvent.objects.filter(
         appointment=appt2, to_status=AppointmentStatus.CANCELLED
     ).exists()
+
+
+@pytest.mark.django_db
+def test_cancellation_respects_day_config_custom_cancel_min_hours(tz):
+    service = ServiceFactory(duration_minutes=30)
+    target_date = datetime.date(2026, 10, 15)
+    start_at = datetime.datetime.combine(target_date, datetime.time(18, 0), tzinfo=tz)
+
+    DayConfig.objects.create(
+        date=target_date,
+        is_open=True,
+        cancel_min_hours=8,
+    )
+
+    appointment = AppointmentFactory(
+        service=service,
+        date=target_date,
+        start_at=start_at,
+        status=AppointmentStatus.CONFIRMED,
+    )
+
+    # 6 hours before start_at is allowed under default (4h), but fails with 8h
+    now_6h_before = start_at - datetime.timedelta(hours=6)
+    with pytest.raises(CancellationNotAllowed):
+        cancel_appointment(appointment, now=now_6h_before)
+
+    # 10 hours before start_at succeeds
+    now_10h_before = start_at - datetime.timedelta(hours=10)
+    cancelled = cancel_appointment(appointment, now=now_10h_before)
+    assert cancelled.status == AppointmentStatus.CANCELLED

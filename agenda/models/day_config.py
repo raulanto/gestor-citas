@@ -42,6 +42,48 @@ class DayConfig(models.Model):
         blank=True,
         default="",
     )
+    booking_min_advance_hours = models.PositiveIntegerField(
+        "anticipación mínima para agendar (horas)",
+        null=True,
+        blank=True,
+        help_text="Horas de anticipación mínima. Vacío para heredar del sistema.",
+    )
+    booking_max_advance_days = models.PositiveIntegerField(
+        "ventana máxima a futuro (días)",
+        null=True,
+        blank=True,
+        help_text="Días máximos a futuro para reservar. Vacío para heredar del sistema.",
+    )
+    cancel_min_hours = models.PositiveIntegerField(
+        "anticipación mínima para cancelar (horas)",
+        null=True,
+        blank=True,
+        help_text="Horas de anticipación mínima para cancelar. Vacío para heredar del sistema.",
+    )
+    max_reschedules_per_appointment = models.PositiveIntegerField(
+        "máximo de reprogramaciones por cita",
+        null=True,
+        blank=True,
+        help_text="Reprogramaciones permitidas por cita. Vacío para heredar del sistema.",
+    )
+    max_active_per_requester_per_day = models.PositiveIntegerField(
+        "máximo de citas activas por solicitante/día",
+        null=True,
+        blank=True,
+        help_text="Citas activas por solicitante en esta fecha. Vacío para heredar del sistema.",
+    )
+    waitlist_max_per_day = models.PositiveIntegerField(
+        "tope de lista de espera por día",
+        null=True,
+        blank=True,
+        help_text="Capacidad máxima de la lista de espera. Vacío para heredar del sistema.",
+    )
+    default_slot_step_minutes = models.PositiveIntegerField(
+        "granularidad de horarios (minutos)",
+        null=True,
+        blank=True,
+        help_text="Paso de cuadrícula en minutos (ej. 15). Vacío para heredar del sistema.",
+    )
 
     created_at = models.DateTimeField("creado el", auto_now_add=True)
     updated_at = models.DateTimeField("actualizado el", auto_now=True)

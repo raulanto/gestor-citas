@@ -1651,6 +1651,68 @@ components:
           type: string
           title: Nota / descripción
           maxLength: 255
+        booking_min_advance_hours:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Anticipación mínima para agendar (horas)
+          description: Horas de anticipación mínima. Vacío para heredar del sistema.
+        booking_max_advance_days:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Ventana máxima a futuro (días)
+          description: Días máximos a futuro para reservar. Vacío para heredar del
+            sistema.
+        cancel_min_hours:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Anticipación mínima para cancelar (horas)
+          description: Horas de anticipación mínima para cancelar. Vacío para heredar
+            del sistema.
+        max_reschedules_per_appointment:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Máximo de reprogramaciones por cita
+          description: Reprogramaciones permitidas por cita. Vacío para heredar del
+            sistema.
+        max_active_per_requester_per_day:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Máximo de citas activas por solicitante/día
+          description: Citas activas por solicitante en esta fecha. Vacío para heredar
+            del sistema.
+        waitlist_max_per_day:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Tope de lista de espera por día
+          description: Capacidad máxima de la lista de espera. Vacío para heredar
+            del sistema.
+        default_slot_step_minutes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+          title: Granularidad de horarios (minutos)
+          description: Paso de cuadrícula en minutos (ej. 15). Vacío para heredar
+            del sistema.
         updated_at:
           type: string
           format: date-time
@@ -1704,6 +1766,34 @@ components:
           type: string
           default: ''
           maxLength: 255
+        booking_min_advance_hours:
+          type: integer
+          minimum: 0
+          nullable: true
+        booking_max_advance_days:
+          type: integer
+          minimum: 0
+          nullable: true
+        cancel_min_hours:
+          type: integer
+          minimum: 0
+          nullable: true
+        max_reschedules_per_appointment:
+          type: integer
+          minimum: 0
+          nullable: true
+        max_active_per_requester_per_day:
+          type: integer
+          minimum: 0
+          nullable: true
+        waitlist_max_per_day:
+          type: integer
+          minimum: 0
+          nullable: true
+        default_slot_step_minutes:
+          type: integer
+          minimum: 1
+          nullable: true
       required:
       - is_open
     ErrorResponse:

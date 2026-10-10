@@ -377,3 +377,34 @@ def test_book_appointment_requester_limits_and_conflicts(setup_booking_env, sett
             start_at=datetime.datetime(2026, 10, 12, 9, 15, tzinfo=env["tz"]),
             now=env["now"],
         )
+
+
+@pytest.mark.django_db
+def test_book_appointment_respects_day_config_custom_settings(setup_booking_env):
+    env = setup_booking_env
+    # Booking date is Monday 2026-10-12
+    booking_date = env["date"]
+    monday_morning = datetime.datetime.combine(booking_date, datetime.time(7, 0), tzinfo=env["tz"])
+
+    # Override min advance hours to 5 for this weekday (default is 2)
+    DayConfig.objects.filter(weekday=Weekday.MONDAY).update(booking_min_advance_hours=5)
+
+    # Monday 10:00 is 3 hours ahead (allowed under default 2h, but rejected under 5h)
+    slot_10am = datetime.datetime.combine(booking_date, datetime.time(10, 0), tzinfo=env["tz"])
+    with pytest.raises(OutsideBookingWindow):
+        book_appointment(
+            requester=env["requester"],
+            service=env["service"],
+            start_at=slot_10am,
+            now=monday_morning,
+        )
+
+    # Monday 14:00 is 7 hours ahead (exceeds 5h min advance, so it succeeds)
+    slot_2pm = datetime.datetime.combine(booking_date, datetime.time(14, 0), tzinfo=env["tz"])
+    res = book_appointment(
+        requester=env["requester"],
+        service=env["service"],
+        start_at=slot_2pm,
+        now=monday_morning,
+    )
+    assert res.appointment.status == AppointmentStatus.CONFIRMED

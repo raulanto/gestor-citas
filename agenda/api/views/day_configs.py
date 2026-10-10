@@ -106,6 +106,23 @@ class DayConfigDateView(APIView):
                 "max_appointments": max_appointments,
                 "is_open": is_open,
                 "note": note,
+                "booking_min_advance_hours": serializer.validated_data.get(
+                    "booking_min_advance_hours"
+                ),
+                "booking_max_advance_days": serializer.validated_data.get(
+                    "booking_max_advance_days"
+                ),
+                "cancel_min_hours": serializer.validated_data.get("cancel_min_hours"),
+                "max_reschedules_per_appointment": serializer.validated_data.get(
+                    "max_reschedules_per_appointment"
+                ),
+                "max_active_per_requester_per_day": serializer.validated_data.get(
+                    "max_active_per_requester_per_day"
+                ),
+                "waitlist_max_per_day": serializer.validated_data.get("waitlist_max_per_day"),
+                "default_slot_step_minutes": serializer.validated_data.get(
+                    "default_slot_step_minutes"
+                ),
             },
         )
         schedule_waitlist_processing()
@@ -210,6 +227,23 @@ class DayConfigWeekdayView(APIView):
                 "max_appointments": max_appointments,
                 "is_open": is_open,
                 "note": note,
+                "booking_min_advance_hours": serializer.validated_data.get(
+                    "booking_min_advance_hours"
+                ),
+                "booking_max_advance_days": serializer.validated_data.get(
+                    "booking_max_advance_days"
+                ),
+                "cancel_min_hours": serializer.validated_data.get("cancel_min_hours"),
+                "max_reschedules_per_appointment": serializer.validated_data.get(
+                    "max_reschedules_per_appointment"
+                ),
+                "max_active_per_requester_per_day": serializer.validated_data.get(
+                    "max_active_per_requester_per_day"
+                ),
+                "waitlist_max_per_day": serializer.validated_data.get("waitlist_max_per_day"),
+                "default_slot_step_minutes": serializer.validated_data.get(
+                    "default_slot_step_minutes"
+                ),
             },
         )
         schedule_waitlist_processing()

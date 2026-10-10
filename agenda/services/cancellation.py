@@ -17,6 +17,7 @@ from agenda.exceptions import (
 )
 from agenda.logging import log_event
 from agenda.models import Appointment
+from agenda.selectors.day_configs import resolve_day_config
 from agenda.services.booking import BookingResult, create_appointment_in_lock
 from agenda.services.locks import day_advisory_lock, day_advisory_locks
 from agenda.services.transitions import transition
@@ -71,7 +72,8 @@ def cancel_appointment(
         # Advance notice validation
         if not force:
             if appointment.status == AppointmentStatus.CONFIRMED:
-                min_hours = getattr(settings, "CANCEL_MIN_HOURS", 4)
+                day_config = resolve_day_config(appointment.date)
+                min_hours = day_config.cancel_min_hours
                 cancel_limit = appt_start_local - datetime.timedelta(hours=min_hours)
                 if now_local > cancel_limit:
                     raise CancellationNotAllowed(
@@ -143,15 +145,16 @@ def reschedule_appointment(
 
         # Advance notice and reschedule count validation
         if not force:
+            orig_day_config = resolve_day_config(orig_date)
             if appointment.status == AppointmentStatus.CONFIRMED:
-                min_hours = getattr(settings, "CANCEL_MIN_HOURS", 4)
+                min_hours = orig_day_config.cancel_min_hours
                 cancel_limit = appt_start_local - datetime.timedelta(hours=min_hours)
                 if now_local > cancel_limit:
                     raise CancellationNotAllowed(
                         "No es posible reprogramar la cita con el tiempo de anticipación actual."
                     )
 
-            max_reschedules = getattr(settings, "MAX_RESCHEDULES_PER_APPOINTMENT", 2)
+            max_reschedules = orig_day_config.max_reschedules_per_appointment
             if appointment.reschedule_count >= max_reschedules:
                 raise RescheduleLimitReached()
 
