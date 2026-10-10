@@ -476,3 +476,42 @@ class TestAdminPermissions:
         )
         assert not form.is_valid()
         assert "cerrado" in form.errors["__all__"][0]
+
+    def test_appointment_admin_add_view_http_post(self, admin_client, monkeypatch):
+        from zoneinfo import ZoneInfo
+
+        from django.utils import timezone
+
+        from agenda.constants import AppointmentStatus
+
+        service = ServiceFactory(duration_minutes=30, is_active=True)
+        requester = RequesterFactory()
+        worker = WorkerFactory(is_active=True)
+        WorkScheduleFactory(
+            worker=worker,
+            weekday=Weekday.MONDAY,
+            start_time=datetime.time(9, 0),
+            end_time=datetime.time(17, 0),
+        )
+
+        tz = ZoneInfo("America/Mexico_City")
+        mock_now = datetime.datetime(2026, 10, 12, 6, 0, tzinfo=tz)
+        monkeypatch.setattr(timezone, "now", lambda: mock_now)
+
+        response = admin_client.post(
+            "/admin/agenda/appointment/add/",
+            data={
+                "requester": requester.pk,
+                "service": service.pk,
+                "start_at_0": "2026-10-12",
+                "start_at_1": "10:00:00",
+            },
+            follow=True,
+        )
+        assert response.status_code == 200
+        appt = Appointment.objects.filter(
+            requester=requester, date=datetime.date(2026, 10, 12)
+        ).first()
+        assert appt is not None
+        assert appt.status == AppointmentStatus.CONFIRMED
+        assert appt.worker_id == worker.id

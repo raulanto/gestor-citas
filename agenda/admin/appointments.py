@@ -90,7 +90,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         return self.inlines
 
     def get_form(
-        self, request: HttpRequest, obj: Appointment | None = None, change=False, **kwargs
+        self, request: HttpRequest, obj: Appointment | None = None, change: bool = False, **kwargs
     ):
         if obj is None:
 
